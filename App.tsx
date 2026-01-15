@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import MapComponent, { MapComponentRef } from './components/MapComponent';
 import { projectFromZone } from './services/geoService';
 
@@ -46,14 +46,25 @@ const App: React.FC = () => {
   const [fileName, setFileName] = useState("");
   const [selectedScale, setSelectedScale] = useState<number>(1000);
   const [mapType, setMapType] = useState<MapType>('satellite');
-  const [selectedZone, setSelectedZone] = useState<string>('EPSG:26191'); // Default to Zone 1
+  
+  // UI Panels State
+  const [configPanelOpen, setConfigPanelOpen] = useState(false); // Left Settings
+  const [filesPanelOpen, setFilesPanelOpen] = useState(false); // Geometric Files
+  const [exportPanelOpen, setExportPanelOpen] = useState(false); // Right Export Panel
+  const [manualInputOpen, setManualInputOpen] = useState(false); // Top HUD
+
+  // Configuration State
+  const [selectedZone, setSelectedZone] = useState<string>('EPSG:26191'); 
   const [selectedExcelFile, setSelectedExcelFile] = useState<File | null>(null);
-  const [isLayerMenuOpen, setIsLayerMenuOpen] = useState(false);
   
   // Manual Input State
   const [manualZone, setManualZone] = useState<string>('EPSG:26191');
   const [manualX, setManualX] = useState<string>('');
   const [manualY, setManualY] = useState<string>('');
+  const [pointCounter, setPointCounter] = useState<number>(1);
+  
+  // Processing State
+  const [countdown, setCountdown] = useState<number>(0);
   
   const mapComponentRef = useRef<MapComponentRef>(null);
   const kmlInputRef = useRef<HTMLInputElement>(null);
@@ -83,6 +94,7 @@ const App: React.FC = () => {
       setActiveTool(null);
       mapComponentRef.current.setDrawTool(null);
       mapComponentRef.current.loadKML(file);
+      setFilesPanelOpen(false);
     }
   };
 
@@ -92,6 +104,7 @@ const App: React.FC = () => {
       setActiveTool(null);
       mapComponentRef.current.setDrawTool(null);
       mapComponentRef.current.loadShapefile(file);
+      setFilesPanelOpen(false);
     }
   };
 
@@ -100,30 +113,21 @@ const App: React.FC = () => {
     if (file && mapComponentRef.current) {
       setActiveTool(null);
       mapComponentRef.current.setDrawTool(null);
-      // استخدام النطاق المختار من القائمة السفلية
       mapComponentRef.current.loadDXF(file, selectedZone);
+      setFilesPanelOpen(false);
     }
   };
 
-  // دالة مساعدة لتحويل القيم إلى أرقام عشرية سواء كانت بفاصلة أو نقطة
   const parseCoordinateValue = (val: any): number => {
     if (typeof val === 'number') return val;
     if (!val) return NaN;
-    
-    // تحويل القيمة إلى نص
     let strVal = String(val).trim();
-
-    // حذف المسافات (العادية وغير المنكسرة) التي قد تستخدم كفواصل للآلاف
     strVal = strVal.replace(/\s/g, '').replace(/\u00A0/g, '');
-
-    // استبدال الفاصلة بالنقطة لدعم الأرقام العشرية (مثلاً: 572478,0646 -> 572478.0646)
     strVal = strVal.replace(',', '.');
-    
     const parsed = parseFloat(strVal);
     return isNaN(parsed) ? NaN : parsed;
   };
 
-  // 1. اختيار الملف فقط وتخزينه في الحالة
   const onExcelFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -131,10 +135,8 @@ const App: React.FC = () => {
     }
   };
 
-  // 2. معالجة الملف عند الضغط على زر "رفع"
   const processExcelFile = () => {
     if (!selectedExcelFile || !mapComponentRef.current) return;
-    
     setActiveTool(null);
     mapComponentRef.current.setDrawTool(null);
     
@@ -146,37 +148,27 @@ const App: React.FC = () => {
             const workbook = XLSX.read(data, { type: 'array' });
             const firstSheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
-            // قراءة البيانات خام لمعالجة النصوص يدوياً
             const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
 
             const validPoints: Array<{x: number, y: number, label?: string}> = [];
-            let successCount = 0;
-            let failCount = 0;
             
             jsonData.forEach((row: any) => {
-                // البحث عن الأعمدة المحتملة بغض النظر عن حالة الأحرف
                 const xKey = Object.keys(row).find(k => /^(x|lng|lon|longitude|easting)$/i.test(k));
                 const yKey = Object.keys(row).find(k => /^(y|lat|latitude|northing)$/i.test(k));
                 const labelKey = Object.keys(row).find(k => /^(id|name|nom|label|point)$/i.test(k));
 
                 if (xKey && yKey) {
-                    // استخدام دالة التحليل التي تدعم الفاصلة والنقطة والمسافات
                     const rawX = parseCoordinateValue(row[xKey]);
                     const rawY = parseCoordinateValue(row[yKey]);
 
                     if (!isNaN(rawX) && !isNaN(rawY)) {
-                        // التحويل المباشر باستخدام النطاق المختار
                         const wgs84 = projectFromZone(rawX, rawY, selectedZone);
-                        
                         if (wgs84) {
                             validPoints.push({
                                 x: wgs84[0],
                                 y: wgs84[1],
                                 label: labelKey ? String(row[labelKey]) : undefined
                             });
-                            successCount++;
-                        } else {
-                            failCount++;
                         }
                     }
                 }
@@ -184,17 +176,14 @@ const App: React.FC = () => {
 
             if (validPoints.length > 0) {
                 mapComponentRef.current?.loadExcelPoints(validPoints);
-                if (failCount > 0) {
-                    alert(`${validPoints.length} points chargés avec succès.\n${failCount} points ignorés (hors zone ou invalides).`);
-                }
-                setSelectedExcelFile(null); // Reset after load
+                setConfigPanelOpen(false); // Close panel on success
+                setSelectedExcelFile(null);
             } else {
-                alert("Aucun point valide trouvé. Vérifiez les colonnes (X, Y) et le système de coordonnées choisi.");
+                alert("Aucun point valide trouvé.");
             }
-
         } catch (err) {
             console.error(err);
-            alert("Erreur lors de la lecture du fichier Excel.");
+            alert("Erreur Excel.");
         }
     };
     reader.readAsArrayBuffer(selectedExcelFile);
@@ -206,72 +195,87 @@ const App: React.FC = () => {
     const y = parseCoordinateValue(manualY);
     
     if (isNaN(x) || isNaN(y)) {
-        alert("Veuillez entrer des coordonnées valides.");
+        alert("Coordonnées invalides.");
         return;
     }
 
     const wgs84 = projectFromZone(x, y, manualZone);
     if (!wgs84) {
-        alert("Coordonnées invalides ou hors zone.");
+        alert("Hors zone.");
         return;
     }
 
-    mapComponentRef.current?.addManualPoint(wgs84[0], wgs84[1], "Manuel");
+    const label = `pt ${pointCounter.toString().padStart(2, '0')}`;
+    mapComponentRef.current?.addManualPoint(wgs84[0], wgs84[1], label);
+    setPointCounter(prev => prev + 1);
     
-    // Clear inputs for next point
     setManualX("");
     setManualY("");
+    setManualInputOpen(false);
   };
 
   const startClipping = async () => {
     if (!mapComponentRef.current || !exportData) return;
+    
+    // Start Processing Sequence
     setStep('PROCESSING');
+    setCountdown(5);
 
-     try {
-      const result = await mapComponentRef.current.getMapCanvas(selectedScale);
-      if (!result) throw new Error("Empty Canvas");
+    const timer = setInterval(() => {
+        setCountdown((prev) => {
+            if (prev <= 1) {
+                clearInterval(timer);
+                return 0;
+            }
+            return prev - 1;
+        });
+    }, 1000);
 
-      const { canvas, extent } = result;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const tiffBuffer = UTIF.encodeImage(imgData.data, canvas.width, canvas.height);
-      
-      const proj4lib = (await import('proj4')).default; 
+    setTimeout(async () => {
+        try {
+            const result = await mapComponentRef.current!.getMapCanvas(selectedScale);
+            clearInterval(timer); 
 
-      const minCorner = proj4lib('EPSG:3857', 'EPSG:4326', [extent[0], extent[1]]);
-      const maxCorner = proj4lib('EPSG:3857', 'EPSG:4326', [extent[2], extent[3]]);
-      
-      const pixelWidthX = (maxCorner[0] - minCorner[0]) / canvas.width;
-      const pixelHeightY = (maxCorner[1] - minCorner[1]) / canvas.height;
+            if (!result) throw new Error("Empty Canvas");
 
-      const tfw = [
-        pixelWidthX.toFixed(12), 
-        "0.000000000000", 
-        "0.000000000000", 
-        (-pixelHeightY).toFixed(12),
-        minCorner[0].toFixed(12), 
-        maxCorner[1].toFixed(12)
-      ].join('\n');
-      
-      const prj = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+            const { canvas, extent } = result;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const tiffBuffer = UTIF.encodeImage(imgData.data, canvas.width, canvas.height);
+            
+            const proj4lib = (await import('proj4')).default; 
+            const minCorner = proj4lib('EPSG:3857', 'EPSG:4326', [extent[0], extent[1]]);
+            const maxCorner = proj4lib('EPSG:3857', 'EPSG:4326', [extent[2], extent[3]]);
+            
+            const pixelWidthX = (maxCorner[0] - minCorner[0]) / canvas.width;
+            const pixelHeightY = (maxCorner[1] - minCorner[1]) / canvas.height;
 
-      const zip = new JSZip();
-      const baseName = `SIG_CLIP_1-${selectedScale}_${Date.now()}`;
-      zip.file(`${baseName}.tif`, tiffBuffer);
-      zip.file(`${baseName}.tfw`, tfw);
-      zip.file(`${baseName}.prj`, prj);
+            const tfw = [
+                pixelWidthX.toFixed(12), "0.000000000000", "0.000000000000", 
+                (-pixelHeightY).toFixed(12), minCorner[0].toFixed(12), maxCorner[1].toFixed(12)
+            ].join('\n');
+            
+            const prj = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
 
-      const blob = await zip.generateAsync({ type: 'blob' });
-      setZipBlob(blob);
-      setFileName(`${baseName}.zip`);
-      setStep('DONE');
-    } catch (e) {
-      setStep('IDLE');
-      console.error(e);
-      alert("Une erreur s'est produite lors du traitement des données géospatiales.");
-    }
+            const zip = new JSZip();
+            const baseName = `SIG_CLIP_1-${selectedScale}_${Date.now()}`;
+            zip.file(`${baseName}.tif`, tiffBuffer);
+            zip.file(`${baseName}.tfw`, tfw);
+            zip.file(`${baseName}.prj`, prj);
+
+            const blob = await zip.generateAsync({ type: 'blob' });
+            setZipBlob(blob);
+            setFileName(`${baseName}.zip`);
+            setStep('DONE');
+        } catch (e) {
+            setStep('IDLE');
+            clearInterval(timer);
+            console.error(e);
+            alert("Erreur lors du traitement.");
+        }
+    }, 1000);
   };
 
   const downloadFile = () => {
@@ -294,275 +298,378 @@ const App: React.FC = () => {
     setSelectedExcelFile(null);
     setManualX("");
     setManualY("");
+    setPointCounter(1);
+    setConfigPanelOpen(false);
+    setFilesPanelOpen(false);
+    setExportPanelOpen(false);
   };
 
   return (
-    <div className="w-screen h-screen flex bg-slate-50 text-slate-800 font-sans overflow-hidden">
-      {/* Sidebar - Left Side */}
-      <div className="w-96 bg-white/90 backdrop-blur-3xl border-r border-slate-200 flex flex-col p-6 z-20 shadow-[10px_0_40px_rgba(0,0,0,0.05)]">
-        <div className="flex items-center gap-4 mb-8">
-          <div className="w-14 h-14 bg-indigo-600 rounded-[22px] flex items-center justify-center text-3xl shadow-xl shadow-indigo-500/20 border border-indigo-400/20">
-            <i className="fas fa-satellite-dish text-white"></i>
-          </div>
-          <div>
-            <h1 className="text-2xl font-black tracking-tighter uppercase leading-none text-slate-900">GeoMapper</h1>
-            <p className="text-[9px] text-indigo-600 font-black tracking-[0.4em] mt-1">SIG CLIPPING PRO</p>
-          </div>
-        </div>
-
-        <div className="space-y-6 flex-grow overflow-y-auto no-scrollbar">
-          
-          {/* IMPORT SECTION - Organized per request */}
-          <div className="pt-2">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3 flex items-center justify-between">
-              <span>Importation & Données</span>
-              <i className="fas fa-database text-slate-400"></i>
-            </label>
+    <div className="relative w-screen h-screen bg-slate-900 overflow-hidden font-sans text-slate-800">
+      
+      {/* 1. LEFT FLOATING DOCK (Navigation) */}
+      <div className="absolute left-6 top-1/2 -translate-y-1/2 flex flex-col gap-4 z-30">
+        <div className="bg-white/10 backdrop-blur-2xl border border-white/20 p-2 rounded-full shadow-2xl flex flex-col gap-2">
             
-            {/* TOP BLOCK: Configuration & Points (Projection + Excel) - ISOLATED */}
-            <div className="bg-slate-50 rounded-3xl p-4 border border-slate-200 space-y-3 mb-4">
-                <div className="flex items-center gap-2 mb-1 px-1">
-                    <div className="w-1 h-3 bg-indigo-500 rounded-full"></div>
-                    <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Système & Points</span>
-                </div>
-
-                {/* 1. Projection System */}
-                <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
-                    <div className="flex items-center justify-between mb-2">
-                        <span className="text-[9px] text-indigo-600 font-bold uppercase">Projection (Zone)</span>
-                        <a href="https://epsg.io/?q=Morocco" target="_blank" rel="noopener noreferrer" className="text-[9px] text-slate-400 hover:text-indigo-500"><i className="fas fa-info-circle"></i></a>
-                    </div>
-                    <select 
-                        value={selectedZone}
-                        onChange={(e) => setSelectedZone(e.target.value)}
-                        className="w-full bg-slate-50 text-slate-700 text-[10px] p-2 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500/50 font-medium border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
-                    >
-                        {ZONES.map(z => (
-                            <option key={z.code} value={z.code}>{z.label}</option>
-                        ))}
-                    </select>
-                </div>
-
-                {/* 2. Excel Upload (Full Width) */}
-                <input type="file" accept=".xlsx, .xls" className="hidden" ref={excelInputRef} onChange={onExcelFileSelect} />
-                <button 
-                  onClick={() => excelInputRef.current?.click()}
-                  className={`w-full bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl flex items-center justify-between gap-3 transition-all group active:scale-95 shadow-sm hover:shadow-md ${selectedExcelFile ? 'border-blue-500 bg-blue-50' : 'hover:border-blue-400'}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${selectedExcelFile ? 'bg-blue-500 text-white' : 'bg-blue-50 text-blue-500 group-hover:bg-blue-500 group-hover:text-white'}`}>
-                        <i className="fas fa-table text-xs"></i>
-                    </div>
-                    <div className="flex flex-col items-start">
-                        <span className="text-[10px] font-bold text-slate-600 group-hover:text-slate-800 uppercase tracking-wider">Excel Pts</span>
-                        <span className="text-[8px] text-slate-400 font-medium">Importer des coordonnées</span>
-                    </div>
-                  </div>
-                  <i className={`fas ${selectedExcelFile ? 'fa-check-circle text-blue-500' : 'fa-plus text-slate-300'} text-xs`}></i>
-                </button>
-
-                {/* Excel Processing Action Bar */}
-                {selectedExcelFile && (
-                  <div className="animate-in slide-in-from-top fade-in duration-300">
-                      <button 
-                        onClick={processExcelFile}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-[11px] font-bold shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
-                      >
-                        <i className="fas fa-check-circle"></i>
-                        <span>Charger : {selectedExcelFile.name.length > 15 ? selectedExcelFile.name.substring(0, 15) + '...' : selectedExcelFile.name}</span>
-                      </button>
-                  </div>
-                )}
+            {/* Logo */}
+            <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white mb-2 shadow-lg">
+                <i className="fas fa-satellite-dish text-xl"></i>
             </div>
 
-            {/* NEW: Manual Input Block */}
-            <div className="bg-slate-50 rounded-3xl p-4 border border-slate-200 space-y-3 mb-4">
-               <div className="flex items-center gap-2 mb-1 px-1">
-                   <div className="w-1 h-3 bg-orange-500 rounded-full"></div>
-                   <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Saisie Manuelle</span>
-               </div>
-               
-               <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-                  {/* Manual Zone Select */}
-                  <div>
-                    <label className="text-[9px] text-indigo-600 font-bold uppercase block mb-1">Zone Input</label>
-                    <select 
-                        value={manualZone}
-                        onChange={(e) => setManualZone(e.target.value)}
-                        className="w-full bg-slate-50 text-slate-700 text-[10px] p-2 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500/50 font-medium border border-slate-200 cursor-pointer"
-                    >
-                        {ZONES.map(z => (
-                            <option key={z.code} value={z.code}>{z.label}</option>
-                        ))}
-                    </select>
-                  </div>
+            {/* Config Toggle */}
+            <button 
+                onClick={() => setConfigPanelOpen(!configPanelOpen)}
+                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 group relative ${configPanelOpen ? 'bg-white text-indigo-600' : 'text-white hover:bg-white/20'}`}
+            >
+                <i className="fas fa-database text-lg"></i>
+                <span className="absolute left-14 bg-black/80 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Base de données</span>
+            </button>
 
-                  <div className="grid grid-cols-2 gap-2">
-                     <div>
-                       <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">X / Long</label>
-                       <input 
-                         type="text" 
-                         value={manualX}
-                         onChange={(e) => setManualX(e.target.value)}
-                         placeholder="000000.00"
-                         className="w-full bg-slate-50 text-slate-800 text-xs p-2 rounded-lg outline-none border border-slate-200 focus:border-indigo-400 font-mono"
-                       />
-                     </div>
-                     <div>
-                       <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Y / Lat</label>
-                       <input 
-                         type="text" 
-                         value={manualY}
-                         onChange={(e) => setManualY(e.target.value)}
-                         placeholder="000000.00"
-                         className="w-full bg-slate-50 text-slate-800 text-xs p-2 rounded-lg outline-none border border-slate-200 focus:border-indigo-400 font-mono"
-                       />
-                     </div>
-                  </div>
-                  
-                  <button 
-                    onClick={handleManualAddPoint}
-                    className="w-full bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-lg text-[10px] font-bold shadow-md shadow-orange-500/20 transition-all active:scale-95"
-                  >
-                    Ajouter le point
-                  </button>
-               </div>
-            </div>
+             {/* Files Toggle */}
+            <button 
+                onClick={() => setFilesPanelOpen(!filesPanelOpen)}
+                className={`w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 group relative ${filesPanelOpen ? 'bg-white text-emerald-600' : 'text-white hover:bg-white/20'}`}
+            >
+                <i className="fas fa-folder-open text-lg"></i>
+                <span className="absolute left-14 bg-black/80 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">Fichiers Géométriques</span>
+            </button>
 
-            {/* BOTTOM BLOCK: Files (KML, SHP, DXF) */}
-            <div className="bg-slate-50 rounded-3xl p-4 border border-slate-200">
-                <div className="flex items-center gap-2 mb-3 px-1">
-                    <div className="w-1 h-3 bg-emerald-500 rounded-full"></div>
-                    <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Fichiers Géométriques</span>
-                </div>
-                
-                <div className="grid grid-cols-3 gap-2">
-                    {/* KML */}
-                    <input type="file" accept=".kml,.kmz" className="hidden" ref={kmlInputRef} onChange={handleKMLUpload} />
-                    <button 
-                      onClick={() => kmlInputRef.current?.click()}
-                      className="aspect-square bg-white hover:bg-slate-50 border border-slate-200 hover:border-amber-400 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all group active:scale-95 shadow-sm hover:shadow-md"
-                    >
-                      <div className="w-8 h-8 bg-amber-50 rounded-full flex items-center justify-center text-amber-500 group-hover:bg-amber-500 group-hover:text-white transition-colors">
-                        <i className="fas fa-map-marker-alt text-xs"></i>
-                      </div>
-                      <span className="text-[9px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">KML</span>
-                    </button>
-
-                    {/* SHP */}
-                    <input type="file" accept=".zip" className="hidden" ref={shpInputRef} onChange={handleShapefileUpload} />
-                    <button 
-                      onClick={() => shpInputRef.current?.click()}
-                      className="aspect-square bg-white hover:bg-slate-50 border border-slate-200 hover:border-emerald-400 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all group active:scale-95 shadow-sm hover:shadow-md"
-                    >
-                      <div className="w-8 h-8 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
-                        <i className="fas fa-layer-group text-xs"></i>
-                      </div>
-                      <span className="text-[9px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">SHP</span>
-                    </button>
-
-                    {/* DXF */}
-                    <input type="file" accept=".dxf" className="hidden" ref={dxfInputRef} onChange={handleDXFUpload} />
-                    <button 
-                      onClick={() => dxfInputRef.current?.click()}
-                      className="aspect-square bg-white hover:bg-slate-50 border border-slate-200 hover:border-purple-400 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all group active:scale-95 shadow-sm hover:shadow-md"
-                    >
-                      <div className="w-8 h-8 bg-purple-50 rounded-full flex items-center justify-center text-purple-500 group-hover:bg-purple-500 group-hover:text-white transition-colors">
-                        <i className="fas fa-drafting-compass text-xs"></i>
-                      </div>
-                      <span className="text-[9px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">DXF</span>
-                    </button>
-                </div>
-            </div>
-          </div>
-
-          {/* Scale Selection & Map Zoom Control */}
-          <div className="pt-4 p-5 bg-indigo-50 rounded-3xl border border-indigo-100 animate-in fade-in duration-700">
-            <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-4">Échelle et Exportation</label>
-            <div className="relative group">
-              <select 
-                value={selectedScale}
-                onChange={(e) => handleScaleChange(Number(e.target.value))}
-                className="w-full bg-white border border-slate-200 p-5 rounded-2xl text-slate-900 font-black appearance-none focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer group-hover:border-indigo-400 shadow-sm"
-              >
-                {SCALES.map(s => <option key={s.value} value={s.value} className="bg-white text-slate-900">{s.label}</option>)}
-              </select>
-              <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-indigo-500">
-                <i className="fas fa-search-location"></i>
-              </div>
-            </div>
-          </div>
-
-          {/* Workflow Controller */}
-          <div className="pt-6 border-t border-slate-200">
-            {step === 'IDLE' && (
-              <div className="bg-slate-100 rounded-3xl p-6 text-center border border-slate-200">
-                <p className="text-slate-500 text-xs font-bold leading-relaxed">En attente de dessin ou d'importation...</p>
-              </div>
-            )}
-
-            {step === 'SELECTED' && exportData && (
-              <div className="space-y-5 animate-in slide-in-from-bottom duration-500">
-                {/* Removed Données de la Zone block per request */}
-                <button 
-                  onClick={startClipping}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 py-6 rounded-3xl font-black text-lg shadow-2xl shadow-indigo-600/30 flex items-center justify-center gap-4 transition-all active:scale-95 group text-white"
-                >
-                  <i className="fas fa-scissors group-hover:-rotate-45 transition-transform"></i>
-                  <span>Exporter SIG (GeoTIFF)</span>
-                </button>
-              </div>
-            )}
-
-            {step === 'PROCESSING' && (
-              <div className="text-center py-12 space-y-6 bg-white rounded-3xl border border-slate-200 shadow-sm">
-                <div className="relative w-24 h-24 mx-auto">
-                  <div className="absolute inset-0 border-4 border-indigo-100 rounded-full"></div>
-                  <div className="absolute inset-0 border-4 border-t-indigo-600 rounded-full animate-spin"></div>
-                  <div className="absolute inset-0 flex items-center justify-center text-indigo-600">
-                    <i className="fas fa-satellite-dish text-2xl animate-pulse"></i>
-                  </div>
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-slate-800">Traitement en cours</h3>
-                  <p className="text-slate-500 text-sm mt-2">Extraction à l'échelle 1:{selectedScale}</p>
-                </div>
-              </div>
-            )}
-
-            {step === 'DONE' && (
-              <div className="space-y-6 animate-in zoom-in duration-500">
-                <div className="bg-emerald-50 rounded-3xl p-8 text-center border border-emerald-100 shadow-2xl shadow-emerald-500/10">
-                  <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                     <i className="fas fa-check-circle text-3xl text-emerald-600"></i>
-                  </div>
-                  <h3 className="text-xl font-black text-slate-800 uppercase">Package Prêt</h3>
-                  <p className="text-slate-500 text-xs mt-2 font-medium">1:{selectedScale} | TIF + TFW + PRJ</p>
-                </div>
-                <button 
-                  onClick={downloadFile}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 py-6 rounded-3xl font-black text-lg shadow-2xl shadow-emerald-600/30 flex items-center justify-center gap-4 transition-all active:scale-95 text-white"
-                >
-                  <i className="fas fa-download text-xl"></i>
-                  <span>Télécharger (ZIP)</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="pt-6 border-t border-slate-200">
-           <button 
-            onClick={resetAll}
-            className="w-full text-slate-400 hover:text-red-500 py-4 text-[10px] font-black uppercase tracking-[0.3em] transition-colors flex items-center justify-center gap-2"
-           >
-             <i className="fas fa-undo-alt"></i> Réinitialiser la carte
-           </button>
+            {/* Reset */}
+            <button 
+                onClick={resetAll}
+                className="w-12 h-12 rounded-full flex items-center justify-center text-white hover:bg-red-500/80 hover:text-white transition-all duration-300 mt-2"
+            >
+                <i className="fas fa-redo-alt text-lg"></i>
+            </button>
         </div>
       </div>
 
-      {/* Map Content */}
-      <div className="flex-grow relative h-full">
+      {/* 2. FLOATING CONFIG PANEL (Left) */}
+      <div className={`absolute top-24 left-24 w-80 bg-white/90 backdrop-blur-xl border border-white/40 rounded-3xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.1)] z-20 transition-all duration-300 origin-top-left transform ${configPanelOpen ? 'scale-100 opacity-100' : 'scale-90 opacity-0 pointer-events-none'}`}>
+          <div className="flex items-center justify-between mb-6">
+              <h2 className="text-sm font-black uppercase text-slate-800 tracking-wider">Configuration</h2>
+              <button onClick={() => setConfigPanelOpen(false)} className="text-slate-400 hover:text-slate-600"><i className="fas fa-times"></i></button>
+          </div>
+          
+          <div className="space-y-4">
+              <div className="bg-white/50 p-4 rounded-2xl border border-white/50">
+                   <label className="text-[10px] text-indigo-500 font-bold uppercase mb-2 block">Projection (Source)</label>
+                   <select 
+                      value={selectedZone}
+                      onChange={(e) => setSelectedZone(e.target.value)}
+                      className="w-full bg-transparent text-xs font-bold p-2 outline-none cursor-pointer"
+                   >
+                      {ZONES.map(z => <option key={z.code} value={z.code}>{z.label}</option>)}
+                   </select>
+              </div>
+
+              <div className="relative group cursor-pointer" onClick={() => excelInputRef.current?.click()}>
+                  <input type="file" accept=".xlsx, .xls" className="hidden" ref={excelInputRef} onChange={onExcelFileSelect} />
+                  <div className={`h-32 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-2 transition-all ${selectedExcelFile ? 'border-emerald-400 bg-emerald-50' : 'border-slate-300 hover:border-indigo-400 hover:bg-indigo-50'}`}>
+                      {selectedExcelFile ? (
+                          <>
+                            <i className="fas fa-file-excel text-2xl text-emerald-500"></i>
+                            <span className="text-xs font-bold text-emerald-700">{selectedExcelFile.name}</span>
+                          </>
+                      ) : (
+                          <>
+                            <i className="fas fa-cloud-upload-alt text-2xl text-slate-400 group-hover:text-indigo-500"></i>
+                            <span className="text-xs font-bold text-slate-400 group-hover:text-indigo-500">Importer Excel</span>
+                          </>
+                      )}
+                  </div>
+              </div>
+
+              {selectedExcelFile && (
+                  <button onClick={processExcelFile} className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 text-white py-3 rounded-xl text-xs font-bold shadow-lg shadow-emerald-500/30 hover:shadow-emerald-500/50 transition-all">
+                      Charger les points
+                  </button>
+              )}
+          </div>
+      </div>
+
+      {/* 3. FLOATING FILES PANEL (Left) - REIMAGINED AS GRID */}
+      <div className={`absolute top-48 left-24 w-[300px] bg-white/90 backdrop-blur-xl border border-white/40 rounded-3xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.1)] z-20 transition-all duration-300 origin-center-left transform ${filesPanelOpen ? 'scale-100 opacity-100' : 'scale-90 opacity-0 pointer-events-none'}`}>
+           <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-black uppercase text-slate-800 tracking-wider">Fichiers</h2>
+              <button onClick={() => setFilesPanelOpen(false)} className="text-slate-400 hover:text-slate-600"><i className="fas fa-times"></i></button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+              {/* KML */}
+              <input type="file" accept=".kml,.kmz" className="hidden" ref={kmlInputRef} onChange={handleKMLUpload} />
+              <button onClick={() => kmlInputRef.current?.click()} className="aspect-square bg-gradient-to-br from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100 rounded-2xl border border-amber-100 flex flex-col items-center justify-center gap-2 transition-all shadow-sm hover:shadow-md group">
+                  <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm text-amber-500 group-hover:scale-110 transition-transform">
+                      <i className="fas fa-map-marked-alt text-lg"></i>
+                  </div>
+                  <span className="text-[10px] font-black text-amber-800 uppercase">KML / KMZ</span>
+              </button>
+
+              {/* SHP */}
+              <input type="file" accept=".zip" className="hidden" ref={shpInputRef} onChange={handleShapefileUpload} />
+              <button onClick={() => shpInputRef.current?.click()} className="aspect-square bg-gradient-to-br from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100 rounded-2xl border border-emerald-100 flex flex-col items-center justify-center gap-2 transition-all shadow-sm hover:shadow-md group">
+                  <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm text-emerald-500 group-hover:scale-110 transition-transform">
+                      <i className="fas fa-layer-group text-lg"></i>
+                  </div>
+                  <span className="text-[10px] font-black text-emerald-800 uppercase">SHP (ZIP)</span>
+              </button>
+
+              {/* DXF */}
+              <input type="file" accept=".dxf" className="hidden" ref={dxfInputRef} onChange={handleDXFUpload} />
+              <button onClick={() => dxfInputRef.current?.click()} className="col-span-2 py-4 bg-gradient-to-r from-purple-50 to-indigo-50 hover:from-purple-100 hover:to-indigo-100 rounded-2xl border border-purple-100 flex items-center justify-center gap-3 transition-all shadow-sm hover:shadow-md group">
+                  <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center shadow-sm text-purple-500 group-hover:scale-110 transition-transform">
+                      <i className="fas fa-drafting-compass"></i>
+                  </div>
+                  <span className="text-[10px] font-black text-purple-800 uppercase">DXF AutoCAD</span>
+              </button>
+          </div>
+      </div>
+
+      {/* 4. TOP HUD (Saisie Manuelle) - ELEGANT PILL */}
+      <div className="absolute top-6 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center">
+         <div className={`bg-white/90 backdrop-blur-xl border border-white/50 shadow-2xl transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden ${manualInputOpen ? 'w-[340px] rounded-3xl p-1' : 'w-auto rounded-full p-1'}`}>
+             
+             {/* Header / Toggle */}
+             <div 
+                onClick={() => setManualInputOpen(!manualInputOpen)} 
+                className="flex items-center gap-3 cursor-pointer px-4 py-2 hover:bg-black/5 rounded-full transition-colors"
+             >
+                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs shadow-lg transition-colors ${manualInputOpen ? 'bg-slate-800' : 'bg-orange-500'}`}>
+                     <i className="fas fa-map-pin"></i>
+                 </div>
+                 
+                 <div className="flex flex-col">
+                     <span className="text-[11px] font-black uppercase tracking-wider text-slate-800">Saisie Manuelle</span>
+                     {!manualInputOpen && <span className="text-[9px] text-slate-500 font-bold">{ZONES.find(z => z.code === manualZone)?.label.split('(')[0]}</span>}
+                 </div>
+                 
+                 <div className={`ml-2 w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 transition-transform duration-300 ${manualInputOpen ? 'rotate-180' : ''}`}>
+                     <i className="fas fa-chevron-down text-[10px]"></i>
+                 </div>
+             </div>
+
+             {/* Expanded Content */}
+             <div className={`transition-all duration-500 ${manualInputOpen ? 'max-h-[300px] opacity-100 mt-2 px-3 pb-3' : 'max-h-0 opacity-0'}`}>
+                 <div className="space-y-3">
+                     <div className="bg-slate-100 p-2 rounded-xl">
+                         <select 
+                            value={manualZone}
+                            onChange={(e) => setManualZone(e.target.value)}
+                            className="w-full bg-transparent text-[10px] font-bold text-slate-700 outline-none cursor-pointer"
+                         >
+                            {ZONES.map(z => <option key={z.code} value={z.code}>{z.label}</option>)}
+                         </select>
+                     </div>
+                     
+                     <div className="flex gap-2">
+                         <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 flex-1 relative group focus-within:border-orange-400 focus-within:bg-white transition-all">
+                             <label className="text-[8px] font-bold text-slate-400 absolute top-1 left-3 uppercase">X (East)</label>
+                             <input 
+                                 type="text" 
+                                 value={manualX}
+                                 onChange={(e) => setManualX(e.target.value)}
+                                 className="w-full bg-transparent pt-3 text-xs font-mono font-bold text-slate-800 outline-none"
+                                 placeholder="000000.00"
+                             />
+                         </div>
+                         <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 flex-1 relative group focus-within:border-orange-400 focus-within:bg-white transition-all">
+                             <label className="text-[8px] font-bold text-slate-400 absolute top-1 left-3 uppercase">Y (North)</label>
+                             <input 
+                                 type="text" 
+                                 value={manualY}
+                                 onChange={(e) => setManualY(e.target.value)}
+                                 className="w-full bg-transparent pt-3 text-xs font-mono font-bold text-slate-800 outline-none"
+                                 placeholder="000000.00"
+                             />
+                         </div>
+                     </div>
+
+                     <button 
+                        onClick={handleManualAddPoint}
+                        className="w-full bg-slate-800 hover:bg-black text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+                     >
+                        <i className="fas fa-plus"></i>
+                        <span>Ajouter pt {pointCounter.toString().padStart(2, '0')}</span>
+                     </button>
+                 </div>
+             </div>
+         </div>
+      </div>
+
+      {/* 5. DRAWING TOOLS - Floating Capsule (Top Left) */}
+      <div className="absolute top-6 left-24 bg-white/90 backdrop-blur-xl border border-white/40 rounded-full p-1 shadow-xl flex gap-1 z-30">
+          <button 
+            onClick={() => toggleTool('Rectangle')}
+            className={`px-4 py-2 rounded-full flex items-center gap-2 transition-all ${
+              activeTool === 'Rectangle' 
+                ? 'bg-indigo-600 text-white shadow-md' 
+                : 'text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+            }`}
+          >
+            <i className="far fa-square"></i>
+            <span className="text-[10px] font-bold uppercase tracking-wider">Rect</span>
+          </button>
+          
+          <div className="w-px bg-slate-200 my-1"></div>
+
+          <button 
+            onClick={() => toggleTool('Polygon')}
+            className={`px-4 py-2 rounded-full flex items-center gap-2 transition-all ${
+              activeTool === 'Polygon' 
+                ? 'bg-indigo-600 text-white shadow-md' 
+                : 'text-slate-500 hover:bg-indigo-50 hover:text-indigo-600'
+            }`}
+          >
+            <i className="fas fa-draw-polygon"></i>
+            <span className="text-[10px] font-bold uppercase tracking-wider">Poly</span>
+          </button>
+      </div>
+
+      {/* 6. RIGHT EXPORT PANEL - Floating Card */}
+      <div className={`absolute top-6 bottom-6 right-6 w-80 z-30 transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${exportPanelOpen ? 'translate-x-0' : 'translate-x-[calc(100%+2rem)]'}`}>
+         <div className="h-full bg-white/90 backdrop-blur-2xl border border-white/40 rounded-[32px] shadow-2xl flex flex-col overflow-hidden relative">
+             
+             {/* Toggle Handle (Visible when closed) */}
+             {!exportPanelOpen && (
+                 <button 
+                    onClick={() => setExportPanelOpen(true)}
+                    className="absolute top-1/2 -left-16 w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-indigo-600 hover:scale-110 transition-transform pointer-events-auto"
+                 >
+                    <i className="fas fa-chevron-left"></i>
+                 </button>
+             )}
+
+             {/* Close Button */}
+             <button 
+                onClick={() => setExportPanelOpen(false)}
+                className="absolute top-4 right-4 w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors z-10"
+             >
+                <i className="fas fa-times"></i>
+             </button>
+
+             <div className="p-8 flex flex-col h-full">
+                 <div className="mb-6">
+                     <h2 className="text-xl font-black text-slate-800 leading-none">Exportation</h2>
+                     <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest">GeoTIFF Generator</p>
+                 </div>
+
+                 <div className="space-y-6 flex-grow">
+                     <div>
+                         <label className="text-[9px] font-black text-slate-400 uppercase mb-2 block">Échelle</label>
+                         <div className="relative">
+                            <select 
+                                value={selectedScale}
+                                onChange={(e) => handleScaleChange(Number(e.target.value))}
+                                className="w-full bg-slate-50 border border-slate-200 text-slate-800 font-black text-lg p-4 rounded-2xl appearance-none outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                            >
+                                {SCALES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                            </select>
+                            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                                <i className="fas fa-chevron-down"></i>
+                            </div>
+                         </div>
+                     </div>
+
+                     {/* Status & Action Area */}
+                     <div className="flex-grow flex flex-col justify-center">
+                         {step === 'IDLE' && !exportData && (
+                             <div className="text-center p-6 border-2 border-dashed border-slate-200 rounded-3xl">
+                                 <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-3 text-slate-300">
+                                    <i className="fas fa-crosshairs text-xl"></i>
+                                 </div>
+                                 <p className="text-xs font-bold text-slate-400">Sélectionnez une zone sur la carte</p>
+                             </div>
+                         )}
+
+                         {step === 'SELECTED' && exportData && (
+                             <div className="animate-in slide-in-from-bottom duration-500">
+                                 <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-3xl mb-4">
+                                     <div className="flex justify-between items-center mb-2">
+                                         <span className="text-[9px] font-black uppercase text-indigo-400">Coordonnées Centre</span>
+                                         <i className="fas fa-check-circle text-indigo-500"></i>
+                                     </div>
+                                     <div className="text-xs font-mono font-bold text-indigo-900">
+                                         {exportData.lat}<br/>{exportData.lng}
+                                     </div>
+                                 </div>
+                                 <button 
+                                    onClick={startClipping}
+                                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-5 rounded-2xl text-sm font-black shadow-xl shadow-indigo-600/30 transition-transform active:scale-95 flex items-center justify-center gap-3"
+                                 >
+                                    <span>Générer GeoTIFF</span>
+                                    <i className="fas fa-bolt"></i>
+                                 </button>
+                             </div>
+                         )}
+
+                         {step === 'PROCESSING' && (
+                             <div className="flex flex-col items-center">
+                                 {/* Custom Countdown Circle */}
+                                 <div className="relative w-24 h-24 mb-6">
+                                     <svg className="w-full h-full transform -rotate-90">
+                                         <circle cx="48" cy="48" r="40" stroke="#f1f5f9" strokeWidth="6" fill="none" />
+                                         <circle cx="48" cy="48" r="40" stroke="#4f46e5" strokeWidth="6" fill="none" strokeDasharray="251" strokeDashoffset={251 - (251 * (5 - countdown) / 5)} className="transition-all duration-1000 ease-linear" strokeLinecap="round" />
+                                     </svg>
+                                     <div className="absolute inset-0 flex items-center justify-center">
+                                         <span className="text-2xl font-black text-indigo-600">{countdown}</span>
+                                     </div>
+                                 </div>
+                                 <p className="text-xs font-bold text-slate-500 uppercase tracking-widest animate-pulse">Traitement en cours...</p>
+                             </div>
+                         )}
+
+                         {step === 'DONE' && (
+                             <div className="text-center animate-in zoom-in">
+                                 <div className="w-20 h-20 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/20">
+                                     <i className="fas fa-check text-3xl"></i>
+                                 </div>
+                                 <button 
+                                    onClick={downloadFile}
+                                    className="w-full bg-emerald-500 hover:bg-emerald-600 text-white py-5 rounded-2xl text-sm font-black shadow-xl shadow-emerald-500/30 transition-transform active:scale-95 flex items-center justify-center gap-3"
+                                 >
+                                    <i className="fas fa-download"></i>
+                                    <span>Télécharger ZIP</span>
+                                 </button>
+                             </div>
+                         )}
+                     </div>
+                 </div>
+
+                 <div className="mt-auto pt-6 text-center border-t border-slate-100">
+                      <button onClick={() => setExportPanelOpen(false)} className="text-[10px] font-bold text-slate-400 hover:text-indigo-500 uppercase tracking-wider">Masquer</button>
+                 </div>
+             </div>
+         </div>
+      </div>
+
+      {/* Manual Open Trigger for Right Panel (If export data is ready) */}
+      {!exportPanelOpen && exportData && step === 'SELECTED' && (
+           <button 
+              onClick={() => setExportPanelOpen(true)}
+              className="absolute top-1/2 right-6 -translate-y-1/2 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-2xl shadow-indigo-600/40 flex items-center justify-center animate-bounce z-30"
+           >
+              <i className="fas fa-file-export text-xl"></i>
+           </button>
+      )}
+
+      {/* Map Type Toggle (Top Right) */}
+      <div className="absolute top-6 right-6 z-30 flex gap-2">
+          <button 
+            onClick={() => setMapType('satellite')} 
+            className={`w-10 h-10 rounded-full border border-white/20 shadow-lg flex items-center justify-center transition-all ${mapType === 'satellite' ? 'bg-white text-indigo-600' : 'bg-black/40 text-white hover:bg-black/60 backdrop-blur-md'}`}
+          >
+             <i className="fas fa-globe-americas"></i>
+          </button>
+          <button 
+            onClick={() => setMapType('hybrid')} 
+            className={`w-10 h-10 rounded-full border border-white/20 shadow-lg flex items-center justify-center transition-all ${mapType === 'hybrid' ? 'bg-white text-indigo-600' : 'bg-black/40 text-white hover:bg-black/60 backdrop-blur-md'}`}
+          >
+             <i className="fas fa-road"></i>
+          </button>
+      </div>
+
+      {/* MAP COMPONENT */}
+      <div className="absolute inset-0 z-0 bg-slate-900">
         <MapComponent 
           ref={mapComponentRef} 
           mapType={mapType}
@@ -570,106 +677,11 @@ const App: React.FC = () => {
             setExportData(data);
             setStep('SELECTED');
             setActiveTool(null);
+            setExportPanelOpen(true); // Auto open panel
           }} 
         />
-
-        {/* Floating Drawing Tools - Top Left */}
-        <div className="absolute left-4 top-4 flex flex-col gap-2 z-10">
-          <button 
-            onClick={() => toggleTool('Rectangle')}
-            className={`w-10 h-10 rounded-md flex items-center justify-center transition-all shadow-lg border relative group ${
-              activeTool === 'Rectangle' 
-                ? 'bg-indigo-600 border-indigo-400 text-white' 
-                : 'bg-white border-slate-200 text-slate-500 hover:text-indigo-600 hover:bg-slate-50'
-            }`}
-          >
-            <img 
-              src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNGFkZTgwIiBzdHJva2Utd2lkdGg9IjIiPjxyZWN0IHg9IjMiIHk9IjMiIHdpZHRoPSIxOCIgaGVpZ2h0PSIxOCIgcng9IjIiIC8+PC9zdmc+" 
-              className="w-5 h-5" 
-              alt="Rectangle"
-            />
-            {/* Tooltip */}
-            <div className="absolute left-full ml-3 px-3 py-1.5 bg-white text-slate-700 text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-slate-200 pointer-events-none shadow-xl">
-              Rectangle
-            </div>
-          </button>
-          
-          <button 
-            onClick={() => toggleTool('Polygon')}
-            className={`w-10 h-10 rounded-md flex items-center justify-center transition-all shadow-lg border relative group ${
-              activeTool === 'Polygon' 
-                ? 'bg-indigo-600 border-indigo-400 text-white' 
-                : 'bg-white border-slate-200 text-slate-500 hover:text-indigo-600 hover:bg-slate-50'
-            }`}
-          >
-            <img 
-              src="https://tool-online.com/Images/Polygone.png" 
-              className="w-5 h-5 invert mix-blend-difference" 
-              alt="Polygone"
-            />
-             {/* Tooltip */}
-            <div className="absolute left-full ml-3 px-3 py-1.5 bg-white text-slate-700 text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-slate-200 pointer-events-none shadow-xl">
-              Polygone
-            </div>
-          </button>
-        </div>
-
-        {/* Map Layers Control - Top Right */}
-        <div className="absolute right-4 top-4 z-10 flex flex-col items-end">
-          <button
-            onClick={() => setIsLayerMenuOpen(!isLayerMenuOpen)}
-            className={`w-10 h-10 rounded-xl shadow-lg border border-slate-200 flex items-center justify-center transition-all ${isLayerMenuOpen ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-          >
-            <i className="fas fa-layer-group"></i>
-          </button>
-
-          {isLayerMenuOpen && (
-            <div className="mt-2 bg-white/95 backdrop-blur-md p-2 rounded-xl border border-slate-200 shadow-xl flex flex-col gap-2 animate-in slide-in-from-top-2 fade-in duration-200 w-32">
-              <button
-                onClick={() => { setMapType('satellite'); setIsLayerMenuOpen(false); }}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all ${mapType === 'satellite' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}
-              >
-                <i className="fas fa-globe w-4"></i>
-                <span>Satellite</span>
-              </button>
-              <button
-                onClick={() => { setMapType('hybrid'); setIsLayerMenuOpen(false); }}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all ${mapType === 'hybrid' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}
-              >
-                <i className="fas fa-map-marked-alt w-4"></i>
-                <span>Hybride</span>
-              </button>
-            </div>
-          )}
-        </div>
-        
-        {/* Indicators Overlay */}
-        <div className="absolute bottom-8 left-8 bg-white/90 backdrop-blur-2xl p-6 rounded-[32px] border border-slate-200 pointer-events-none flex items-center gap-8 shadow-2xl">
-          <div className="flex items-center gap-4">
-             <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.5)]"></div>
-             <div className="flex flex-col">
-               <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Système Prêt</span>
-               <span className="text-[8px] text-slate-500 font-bold">{mapType === 'satellite' ? 'Vue Satellite' : 'Vue Hybride'}</span>
-             </div>
-          </div>
-          <div className="h-6 w-px bg-slate-200"></div>
-          <div className="flex items-center gap-4">
-             <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-500 border border-indigo-100">
-               <i className="fas fa-expand text-sm"></i>
-             </div>
-             <div className="flex flex-col">
-               <span className="text-[10px] font-black uppercase tracking-widest text-slate-800">Échelle Cible</span>
-               <span className="text-[10px] text-indigo-600 font-black">1:{selectedScale}</span>
-             </div>
-          </div>
-        </div>
       </div>
 
-      <style>{`
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        option { padding: 12px; background: white; color: #1e293b; font-weight: bold; }
-      `}</style>
     </div>
   );
 };
