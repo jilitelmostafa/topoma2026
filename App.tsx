@@ -1,9 +1,11 @@
 import React, { useState, useRef } from 'react';
 import MapComponent, { MapComponentRef } from './components/MapComponent';
 import proj4 from 'proj4';
+import { smartProjectToWGS84 } from './services/geoService';
 
 declare const UTIF: any;
 declare const JSZip: any;
+declare const XLSX: any;
 
 interface ExportData {
   lat: string;
@@ -41,6 +43,7 @@ const App: React.FC = () => {
   const mapComponentRef = useRef<MapComponentRef>(null);
   const kmlInputRef = useRef<HTMLInputElement>(null);
   const shpInputRef = useRef<HTMLInputElement>(null);
+  const excelInputRef = useRef<HTMLInputElement>(null);
 
   const handleScaleChange = (newScale: number) => {
     setSelectedScale(newScale);
@@ -73,6 +76,77 @@ const App: React.FC = () => {
       setActiveTool(null);
       mapComponentRef.current.setDrawTool(null);
       mapComponentRef.current.loadShapefile(file);
+    }
+  };
+
+  // دالة مساعدة لتحويل القيم إلى أرقام عشرية سواء كانت بفاصلة أو نقطة
+  const parseCoordinateValue = (val: any): number => {
+    if (typeof val === 'number') return val;
+    if (!val) return NaN;
+    const strVal = String(val).trim();
+    // استبدال الفاصلة بالنقطة للتحويل الصحيح
+    const normalized = strVal.replace(',', '.');
+    return parseFloat(normalized);
+  };
+
+  const handleExcelUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && mapComponentRef.current) {
+        setActiveTool(null);
+        mapComponentRef.current.setDrawTool(null);
+        
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const data = e.target?.result;
+            if (!data) return;
+            try {
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                // قراءة البيانات خام لمعالجة النصوص يدوياً
+                const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+                const validPoints: Array<{x: number, y: number, label?: string}> = [];
+                
+                jsonData.forEach((row: any) => {
+                    // البحث عن الأعمدة المحتملة بغض النظر عن حالة الأحرف
+                    const xKey = Object.keys(row).find(k => /^(x|lng|lon|longitude|easting)$/i.test(k));
+                    const yKey = Object.keys(row).find(k => /^(y|lat|latitude|northing)$/i.test(k));
+                    const labelKey = Object.keys(row).find(k => /^(id|name|nom|label|point)$/i.test(k));
+
+                    if (xKey && yKey) {
+                        // استخدام دالة التحليل التي تدعم الفاصلة والنقطة
+                        const rawX = parseCoordinateValue(row[xKey]);
+                        const rawY = parseCoordinateValue(row[yKey]);
+
+                        if (!isNaN(rawX) && !isNaN(rawY)) {
+                            // التحويل التلقائي (WGS84 أو Lambert Maroc)
+                            const wgs84 = smartProjectToWGS84(rawX, rawY);
+                            if (wgs84) {
+                                validPoints.push({
+                                    x: wgs84[0],
+                                    y: wgs84[1],
+                                    label: labelKey ? String(row[labelKey]) : undefined
+                                });
+                            }
+                        }
+                    }
+                });
+
+                if (validPoints.length > 0) {
+                    mapComponentRef.current?.loadExcelPoints(validPoints);
+                    // إعادة تعيين الإدخال للسماح برفع نفس الملف مرة أخرى إذا لزم الأمر
+                    if (excelInputRef.current) excelInputRef.current.value = '';
+                } else {
+                    alert("Impossible de trouver des colonnes de coordonnées valides (X, Y) ou format incorrect.");
+                }
+
+            } catch (err) {
+                console.error(err);
+                alert("Erreur lors de la lecture du fichier Excel.");
+            }
+        };
+        reader.readAsArrayBuffer(file);
     }
   };
 
@@ -201,28 +275,38 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* File Uploads (KML & SHP) */}
+          {/* File Uploads (KML, SHP, Excel) */}
           <div className="space-y-3 pt-2">
             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Importation</label>
             
             {/* KML */}
-            <input type="file" accept=".kml" className="hidden" ref={kmlInputRef} onChange={handleKMLUpload} />
+            <input type="file" accept=".kml,.kmz" className="hidden" ref={kmlInputRef} onChange={handleKMLUpload} />
             <button 
               onClick={() => kmlInputRef.current?.click()}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
+              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
             >
               <i className="fas fa-file-code text-lg text-amber-500"></i>
-              <span>Importer fichier KML</span>
+              <span className="text-[11px]">Importer KML / KMZ</span>
             </button>
 
             {/* SHP (ZIP) */}
             <input type="file" accept=".zip" className="hidden" ref={shpInputRef} onChange={handleShapefileUpload} />
             <button 
               onClick={() => shpInputRef.current?.click()}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
+              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
             >
               <i className="fas fa-file-archive text-lg text-green-500"></i>
-              <span>Importer Shapefile (ZIP)</span>
+              <span className="text-[11px]">Importer Shapefile (ZIP)</span>
+            </button>
+
+            {/* Excel (XLSX) */}
+            <input type="file" accept=".xlsx, .xls" className="hidden" ref={excelInputRef} onChange={handleExcelUpload} />
+            <button 
+              onClick={() => excelInputRef.current?.click()}
+              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
+            >
+              <i className="fas fa-file-excel text-lg text-blue-500"></i>
+              <span className="text-[11px]">Importer Excel (X, Y)</span>
             </button>
           </div>
 
