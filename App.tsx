@@ -48,6 +48,12 @@ const App: React.FC = () => {
   const [mapType, setMapType] = useState<MapType>('satellite');
   const [selectedZone, setSelectedZone] = useState<string>('EPSG:26191'); // Default to Zone 1
   const [selectedExcelFile, setSelectedExcelFile] = useState<File | null>(null);
+  const [isLayerMenuOpen, setIsLayerMenuOpen] = useState(false);
+  
+  // Manual Input State
+  const [manualZone, setManualZone] = useState<string>('EPSG:26191');
+  const [manualX, setManualX] = useState<string>('');
+  const [manualY, setManualY] = useState<string>('');
   
   const mapComponentRef = useRef<MapComponentRef>(null);
   const kmlInputRef = useRef<HTMLInputElement>(null);
@@ -194,6 +200,29 @@ const App: React.FC = () => {
     reader.readAsArrayBuffer(selectedExcelFile);
   };
 
+  const handleManualAddPoint = () => {
+    if (!manualX || !manualY) return;
+    const x = parseCoordinateValue(manualX);
+    const y = parseCoordinateValue(manualY);
+    
+    if (isNaN(x) || isNaN(y)) {
+        alert("Veuillez entrer des coordonnées valides.");
+        return;
+    }
+
+    const wgs84 = projectFromZone(x, y, manualZone);
+    if (!wgs84) {
+        alert("Coordonnées invalides ou hors zone.");
+        return;
+    }
+
+    mapComponentRef.current?.addManualPoint(wgs84[0], wgs84[1], "Manuel");
+    
+    // Clear inputs for next point
+    setManualX("");
+    setManualY("");
+  };
+
   const startClipping = async () => {
     if (!mapComponentRef.current || !exportData) return;
     setStep('PROCESSING');
@@ -263,6 +292,8 @@ const App: React.FC = () => {
     setActiveTool(null);
     setZipBlob(null);
     setSelectedExcelFile(null);
+    setManualX("");
+    setManualY("");
   };
 
   return (
@@ -281,94 +312,167 @@ const App: React.FC = () => {
 
         <div className="space-y-6 flex-grow overflow-y-auto no-scrollbar">
           
-          {/* IMPORT SECTION - Professional Grid Layout */}
+          {/* IMPORT SECTION - Organized per request */}
           <div className="pt-2">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3 flex items-center justify-between">
               <span>Importation & Données</span>
               <i className="fas fa-database text-slate-400"></i>
             </label>
             
-            <div className="bg-slate-50 rounded-3xl p-4 border border-slate-200 space-y-4">
-               {/* 1. Projection System (Affects DXF & Excel) */}
-               <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="flex items-center justify-between mb-2">
-                     <span className="text-[9px] text-indigo-600 font-bold uppercase">Projection (Zone)</span>
-                     <a href="https://epsg.io/?q=Morocco" target="_blank" rel="noopener noreferrer" className="text-[9px] text-slate-400 hover:text-indigo-500"><i className="fas fa-info-circle"></i></a>
-                  </div>
-                  <select 
-                      value={selectedZone}
-                      onChange={(e) => setSelectedZone(e.target.value)}
-                      className="w-full bg-slate-50 text-slate-700 text-[10px] p-2 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500/50 font-medium border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
-                  >
-                      {ZONES.map(z => (
-                          <option key={z.code} value={z.code}>{z.label}</option>
-                      ))}
-                  </select>
-               </div>
+            {/* TOP BLOCK: Configuration & Points (Projection + Excel) - ISOLATED */}
+            <div className="bg-slate-50 rounded-3xl p-4 border border-slate-200 space-y-3 mb-4">
+                <div className="flex items-center gap-2 mb-1 px-1">
+                    <div className="w-1 h-3 bg-indigo-500 rounded-full"></div>
+                    <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Système & Points</span>
+                </div>
 
-               {/* 2. File Type Grid */}
-               <div className="grid grid-cols-2 gap-3">
-                  {/* KML */}
-                  <input type="file" accept=".kml,.kmz" className="hidden" ref={kmlInputRef} onChange={handleKMLUpload} />
-                  <button 
-                    onClick={() => kmlInputRef.current?.click()}
-                    className="bg-white hover:bg-slate-50 border border-slate-200 hover:border-amber-400 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all group active:scale-95 shadow-sm hover:shadow-md"
-                  >
-                    <div className="w-10 h-10 bg-amber-50 rounded-full flex items-center justify-center text-amber-500 group-hover:bg-amber-500 group-hover:text-white transition-colors">
-                       <i className="fas fa-map-marker-alt text-lg"></i>
+                {/* 1. Projection System */}
+                <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-[9px] text-indigo-600 font-bold uppercase">Projection (Zone)</span>
+                        <a href="https://epsg.io/?q=Morocco" target="_blank" rel="noopener noreferrer" className="text-[9px] text-slate-400 hover:text-indigo-500"><i className="fas fa-info-circle"></i></a>
                     </div>
-                    <span className="text-[10px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">KML / KMZ</span>
-                  </button>
-
-                  {/* SHP */}
-                  <input type="file" accept=".zip" className="hidden" ref={shpInputRef} onChange={handleShapefileUpload} />
-                  <button 
-                    onClick={() => shpInputRef.current?.click()}
-                    className="bg-white hover:bg-slate-50 border border-slate-200 hover:border-emerald-400 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all group active:scale-95 shadow-sm hover:shadow-md"
-                  >
-                    <div className="w-10 h-10 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
-                       <i className="fas fa-layer-group text-lg"></i>
-                    </div>
-                    <span className="text-[10px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">Shapefile</span>
-                  </button>
-
-                  {/* DXF */}
-                  <input type="file" accept=".dxf" className="hidden" ref={dxfInputRef} onChange={handleDXFUpload} />
-                  <button 
-                    onClick={() => dxfInputRef.current?.click()}
-                    className="bg-white hover:bg-slate-50 border border-slate-200 hover:border-purple-400 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all group active:scale-95 shadow-sm hover:shadow-md"
-                  >
-                    <div className="w-10 h-10 bg-purple-50 rounded-full flex items-center justify-center text-purple-500 group-hover:bg-purple-500 group-hover:text-white transition-colors">
-                       <i className="fas fa-drafting-compass text-lg"></i>
-                    </div>
-                    <span className="text-[10px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">Plan DXF</span>
-                  </button>
-
-                  {/* EXCEL */}
-                  <input type="file" accept=".xlsx, .xls" className="hidden" ref={excelInputRef} onChange={onExcelFileSelect} />
-                  <button 
-                    onClick={() => excelInputRef.current?.click()}
-                    className={`bg-white hover:bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all group active:scale-95 shadow-sm hover:shadow-md ${selectedExcelFile ? 'border-blue-500 bg-blue-50' : 'hover:border-blue-400'}`}
-                  >
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${selectedExcelFile ? 'bg-blue-500 text-white' : 'bg-blue-50 text-blue-500 group-hover:bg-blue-500 group-hover:text-white'}`}>
-                       <i className="fas fa-table text-lg"></i>
-                    </div>
-                    <span className="text-[10px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">Excel Pts</span>
-                  </button>
-               </div>
-
-               {/* Excel Processing Action Bar (Appears only when file selected) */}
-               {selectedExcelFile && (
-                 <div className="animate-in slide-in-from-top fade-in duration-300">
-                    <button 
-                      onClick={processExcelFile}
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-[11px] font-bold shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
+                    <select 
+                        value={selectedZone}
+                        onChange={(e) => setSelectedZone(e.target.value)}
+                        className="w-full bg-slate-50 text-slate-700 text-[10px] p-2 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500/50 font-medium border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
                     >
-                      <i className="fas fa-check-circle"></i>
-                      <span>Charger : {selectedExcelFile.name.length > 15 ? selectedExcelFile.name.substring(0, 15) + '...' : selectedExcelFile.name}</span>
+                        {ZONES.map(z => (
+                            <option key={z.code} value={z.code}>{z.label}</option>
+                        ))}
+                    </select>
+                </div>
+
+                {/* 2. Excel Upload (Full Width) */}
+                <input type="file" accept=".xlsx, .xls" className="hidden" ref={excelInputRef} onChange={onExcelFileSelect} />
+                <button 
+                  onClick={() => excelInputRef.current?.click()}
+                  className={`w-full bg-white hover:bg-slate-50 border border-slate-200 p-3 rounded-2xl flex items-center justify-between gap-3 transition-all group active:scale-95 shadow-sm hover:shadow-md ${selectedExcelFile ? 'border-blue-500 bg-blue-50' : 'hover:border-blue-400'}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${selectedExcelFile ? 'bg-blue-500 text-white' : 'bg-blue-50 text-blue-500 group-hover:bg-blue-500 group-hover:text-white'}`}>
+                        <i className="fas fa-table text-xs"></i>
+                    </div>
+                    <div className="flex flex-col items-start">
+                        <span className="text-[10px] font-bold text-slate-600 group-hover:text-slate-800 uppercase tracking-wider">Excel Pts</span>
+                        <span className="text-[8px] text-slate-400 font-medium">Importer des coordonnées</span>
+                    </div>
+                  </div>
+                  <i className={`fas ${selectedExcelFile ? 'fa-check-circle text-blue-500' : 'fa-plus text-slate-300'} text-xs`}></i>
+                </button>
+
+                {/* Excel Processing Action Bar */}
+                {selectedExcelFile && (
+                  <div className="animate-in slide-in-from-top fade-in duration-300">
+                      <button 
+                        onClick={processExcelFile}
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-[11px] font-bold shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
+                      >
+                        <i className="fas fa-check-circle"></i>
+                        <span>Charger : {selectedExcelFile.name.length > 15 ? selectedExcelFile.name.substring(0, 15) + '...' : selectedExcelFile.name}</span>
+                      </button>
+                  </div>
+                )}
+            </div>
+
+            {/* NEW: Manual Input Block */}
+            <div className="bg-slate-50 rounded-3xl p-4 border border-slate-200 space-y-3 mb-4">
+               <div className="flex items-center gap-2 mb-1 px-1">
+                   <div className="w-1 h-3 bg-orange-500 rounded-full"></div>
+                   <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Saisie Manuelle</span>
+               </div>
+               
+               <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                  {/* Manual Zone Select */}
+                  <div>
+                    <label className="text-[9px] text-indigo-600 font-bold uppercase block mb-1">Zone Input</label>
+                    <select 
+                        value={manualZone}
+                        onChange={(e) => setManualZone(e.target.value)}
+                        className="w-full bg-slate-50 text-slate-700 text-[10px] p-2 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500/50 font-medium border border-slate-200 cursor-pointer"
+                    >
+                        {ZONES.map(z => (
+                            <option key={z.code} value={z.code}>{z.label}</option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                     <div>
+                       <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">X / Long</label>
+                       <input 
+                         type="text" 
+                         value={manualX}
+                         onChange={(e) => setManualX(e.target.value)}
+                         placeholder="000000.00"
+                         className="w-full bg-slate-50 text-slate-800 text-xs p-2 rounded-lg outline-none border border-slate-200 focus:border-indigo-400 font-mono"
+                       />
+                     </div>
+                     <div>
+                       <label className="text-[9px] text-slate-400 font-bold uppercase block mb-1">Y / Lat</label>
+                       <input 
+                         type="text" 
+                         value={manualY}
+                         onChange={(e) => setManualY(e.target.value)}
+                         placeholder="000000.00"
+                         className="w-full bg-slate-50 text-slate-800 text-xs p-2 rounded-lg outline-none border border-slate-200 focus:border-indigo-400 font-mono"
+                       />
+                     </div>
+                  </div>
+                  
+                  <button 
+                    onClick={handleManualAddPoint}
+                    className="w-full bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-lg text-[10px] font-bold shadow-md shadow-orange-500/20 transition-all active:scale-95"
+                  >
+                    Ajouter le point
+                  </button>
+               </div>
+            </div>
+
+            {/* BOTTOM BLOCK: Files (KML, SHP, DXF) */}
+            <div className="bg-slate-50 rounded-3xl p-4 border border-slate-200">
+                <div className="flex items-center gap-2 mb-3 px-1">
+                    <div className="w-1 h-3 bg-emerald-500 rounded-full"></div>
+                    <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Fichiers Géométriques</span>
+                </div>
+                
+                <div className="grid grid-cols-3 gap-2">
+                    {/* KML */}
+                    <input type="file" accept=".kml,.kmz" className="hidden" ref={kmlInputRef} onChange={handleKMLUpload} />
+                    <button 
+                      onClick={() => kmlInputRef.current?.click()}
+                      className="aspect-square bg-white hover:bg-slate-50 border border-slate-200 hover:border-amber-400 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all group active:scale-95 shadow-sm hover:shadow-md"
+                    >
+                      <div className="w-8 h-8 bg-amber-50 rounded-full flex items-center justify-center text-amber-500 group-hover:bg-amber-500 group-hover:text-white transition-colors">
+                        <i className="fas fa-map-marker-alt text-xs"></i>
+                      </div>
+                      <span className="text-[9px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">KML</span>
                     </button>
-                 </div>
-               )}
+
+                    {/* SHP */}
+                    <input type="file" accept=".zip" className="hidden" ref={shpInputRef} onChange={handleShapefileUpload} />
+                    <button 
+                      onClick={() => shpInputRef.current?.click()}
+                      className="aspect-square bg-white hover:bg-slate-50 border border-slate-200 hover:border-emerald-400 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all group active:scale-95 shadow-sm hover:shadow-md"
+                    >
+                      <div className="w-8 h-8 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                        <i className="fas fa-layer-group text-xs"></i>
+                      </div>
+                      <span className="text-[9px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">SHP</span>
+                    </button>
+
+                    {/* DXF */}
+                    <input type="file" accept=".dxf" className="hidden" ref={dxfInputRef} onChange={handleDXFUpload} />
+                    <button 
+                      onClick={() => dxfInputRef.current?.click()}
+                      className="aspect-square bg-white hover:bg-slate-50 border border-slate-200 hover:border-purple-400 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all group active:scale-95 shadow-sm hover:shadow-md"
+                    >
+                      <div className="w-8 h-8 bg-purple-50 rounded-full flex items-center justify-center text-purple-500 group-hover:bg-purple-500 group-hover:text-white transition-colors">
+                        <i className="fas fa-drafting-compass text-xs"></i>
+                      </div>
+                      <span className="text-[9px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">DXF</span>
+                    </button>
+                </div>
             </div>
           </div>
 
@@ -399,22 +503,7 @@ const App: React.FC = () => {
 
             {step === 'SELECTED' && exportData && (
               <div className="space-y-5 animate-in slide-in-from-bottom duration-500">
-                <div className="bg-indigo-50 rounded-3xl p-6 border border-indigo-100 shadow-inner">
-                  <h3 className="text-indigo-600 font-black text-[10px] uppercase tracking-wider mb-4 flex items-center gap-2">
-                    <i className="fas fa-info-circle"></i>
-                    Données de la Zone
-                  </h3>
-                  <div className="grid grid-cols-2 gap-4 text-[11px]">
-                    <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                      <span className="text-slate-400 block mb-1 uppercase text-[9px]">Lat</span>
-                      <span className="font-mono text-slate-900">{exportData.lat}</span>
-                    </div>
-                    <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                      <span className="text-slate-400 block mb-1 uppercase text-[9px]">Lng</span>
-                      <span className="font-mono text-slate-900">{exportData.lng}</span>
-                    </div>
-                  </div>
-                </div>
+                {/* Removed Données de la Zone block per request */}
                 <button 
                   onClick={startClipping}
                   className="w-full bg-indigo-600 hover:bg-indigo-700 py-6 rounded-3xl font-black text-lg shadow-2xl shadow-indigo-600/30 flex items-center justify-center gap-4 transition-all active:scale-95 group text-white"
@@ -526,38 +615,32 @@ const App: React.FC = () => {
         </div>
 
         {/* Map Layers Control - Top Right */}
-        <div className="absolute right-4 top-4 z-10">
-          <div className="bg-white/90 backdrop-blur-md p-1.5 rounded-lg border border-slate-200 shadow-xl flex flex-col gap-1">
-            <div className="p-1.5 text-center border-b border-slate-100 mb-1">
-               <i className="fas fa-layer-group text-slate-500 text-sm"></i>
-            </div>
-            
-            <button
-              onClick={() => setMapType('satellite')}
-              className={`w-10 h-10 rounded-md flex items-center justify-center transition-all relative group ${
-                 mapType === 'satellite' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'
-              }`}
-            >
-              <i className="fas fa-globe"></i>
-               {/* Tooltip */}
-               <div className="absolute right-full mr-3 px-2 py-1 bg-white text-slate-700 text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-slate-200 pointer-events-none shadow-lg">
-                  Satellite
-               </div>
-            </button>
+        <div className="absolute right-4 top-4 z-10 flex flex-col items-end">
+          <button
+            onClick={() => setIsLayerMenuOpen(!isLayerMenuOpen)}
+            className={`w-10 h-10 rounded-xl shadow-lg border border-slate-200 flex items-center justify-center transition-all ${isLayerMenuOpen ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+          >
+            <i className="fas fa-layer-group"></i>
+          </button>
 
-            <button
-              onClick={() => setMapType('hybrid')}
-              className={`w-10 h-10 rounded-md flex items-center justify-center transition-all relative group ${
-                 mapType === 'hybrid' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'
-              }`}
-            >
-              <i className="fas fa-map-marked-alt"></i>
-              {/* Tooltip */}
-               <div className="absolute right-full mr-3 px-2 py-1 bg-white text-slate-700 text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-slate-200 pointer-events-none shadow-lg">
-                  Hybride
-               </div>
-            </button>
-          </div>
+          {isLayerMenuOpen && (
+            <div className="mt-2 bg-white/95 backdrop-blur-md p-2 rounded-xl border border-slate-200 shadow-xl flex flex-col gap-2 animate-in slide-in-from-top-2 fade-in duration-200 w-32">
+              <button
+                onClick={() => { setMapType('satellite'); setIsLayerMenuOpen(false); }}
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all ${mapType === 'satellite' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                <i className="fas fa-globe w-4"></i>
+                <span>Satellite</span>
+              </button>
+              <button
+                onClick={() => { setMapType('hybrid'); setIsLayerMenuOpen(false); }}
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all ${mapType === 'hybrid' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                <i className="fas fa-map-marked-alt w-4"></i>
+                <span>Hybride</span>
+              </button>
+            </div>
+          )}
         </div>
         
         {/* Indicators Overlay */}

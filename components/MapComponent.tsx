@@ -35,6 +35,7 @@ export interface MapComponentRef {
   loadShapefile: (file: File) => void;
   loadDXF: (file: File, zoneCode: string) => void;
   loadExcelPoints: (points: Array<{x: number, y: number, label?: string}>) => void;
+  addManualPoint: (x: number, y: number, label: string) => void;
   setDrawTool: (type: 'Rectangle' | 'Polygon' | null) => void;
   clearAll: () => void;
   setMapScale: (scale: number) => void;
@@ -59,7 +60,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     stroke: new Stroke({ color: '#ff0000', width: 3 }),
   });
 
-  // نمط النقاط المستوردة (Excel)
+  // نمط النقاط المستوردة (Excel) أو اليدوية
   const pointStyle = (feature: any) => {
     return new Style({
       image: new CircleStyle({
@@ -265,6 +266,21 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             } else {
                 mapRef.current.getView().fit(extent, { padding: [100, 100, 100, 100], duration: 1000 });
             }
+        }
+    },
+    addManualPoint: (x, y, label) => {
+        // This adds to existing points without clearing
+        const feature = new Feature({
+            geometry: new Point(fromLonLat([x, y])),
+            label: label
+        });
+        pointsSourceRef.current.addFeature(feature);
+        if (mapRef.current) {
+            mapRef.current.getView().animate({
+                center: fromLonLat([x, y]),
+                zoom: 16,
+                duration: 800
+            });
         }
     },
     setDrawTool: (type) => {
