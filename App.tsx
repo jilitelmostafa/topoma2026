@@ -52,6 +52,7 @@ const App: React.FC = () => {
   const mapComponentRef = useRef<MapComponentRef>(null);
   const kmlInputRef = useRef<HTMLInputElement>(null);
   const shpInputRef = useRef<HTMLInputElement>(null);
+  const dxfInputRef = useRef<HTMLInputElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
 
   const handleScaleChange = (newScale: number) => {
@@ -85,6 +86,16 @@ const App: React.FC = () => {
       setActiveTool(null);
       mapComponentRef.current.setDrawTool(null);
       mapComponentRef.current.loadShapefile(file);
+    }
+  };
+
+  const handleDXFUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && mapComponentRef.current) {
+      setActiveTool(null);
+      mapComponentRef.current.setDrawTool(null);
+      // استخدام النطاق المختار من القائمة السفلية
+      mapComponentRef.current.loadDXF(file, selectedZone);
     }
   };
 
@@ -310,7 +321,7 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* File Uploads (KML, SHP, Excel) */}
+          {/* File Uploads (KML, SHP, DXF, Excel) */}
           <div className="space-y-3 pt-2">
             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Importation</label>
             
@@ -334,10 +345,20 @@ const App: React.FC = () => {
               <span className="text-[11px]">Importer Shapefile (ZIP)</span>
             </button>
 
+            {/* DXF */}
+            <input type="file" accept=".dxf" className="hidden" ref={dxfInputRef} onChange={handleDXFUpload} />
+            <button 
+              onClick={() => dxfInputRef.current?.click()}
+              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95 mb-2"
+            >
+              <i className="fas fa-drafting-compass text-lg text-purple-500"></i>
+              <span className="text-[11px]">Importer DXF</span>
+            </button>
+
             {/* Excel Section (Updated) */}
             <div className="bg-slate-800/30 rounded-2xl p-3 border border-white/10 space-y-3">
                 <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-bold text-blue-400 uppercase">Points (Excel)</label>
+                    <label className="text-[10px] font-bold text-blue-400 uppercase">Points (Excel) / DXF Zone</label>
                     <i className="fas fa-table text-blue-500"></i>
                 </div>
                 

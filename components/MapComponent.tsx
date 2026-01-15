@@ -13,11 +13,12 @@ import KML from 'ol/format/KML';
 import GeoJSON from 'ol/format/GeoJSON';
 import Polygon from 'ol/geom/Polygon';
 import MultiPolygon from 'ol/geom/MultiPolygon';
+import LineString from 'ol/geom/LineString';
 import Point from 'ol/geom/Point';
 import Feature from 'ol/Feature';
-import { convertToWGS84, calculateScale, getResolutionFromScale } from '../services/geoService';
+import { convertToWGS84, calculateScale, getResolutionFromScale, projectFromZone } from '../services/geoService';
 
-// تعريف مكتبة shpjs العالمية
+// تعريف المكتبات العالمية
 declare const shp: any;
 declare const JSZip: any;
 
@@ -30,6 +31,7 @@ export interface MapComponentRef {
   getMapCanvas: (targetScale?: number) => Promise<{ canvas: HTMLCanvasElement, extent: number[] } | null>;
   loadKML: (file: File) => void;
   loadShapefile: (file: File) => void;
+  loadDXF: (file: File, zoneCode: string) => void;
   loadExcelPoints: (points: Array<{x: number, y: number, label?: string}>) => void;
   setDrawTool: (type: 'Rectangle' | 'Polygon' | null) => void;
   clearAll: () => void;
@@ -133,7 +135,10 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       reader.onload = async (e) => {
         if (e.target?.result) {
           try {
-            const geojson = await shp(e.target.result);
+            const buffer = e.target.result as ArrayBuffer;
+            // استخدام shpjs الافتراضي (يدعم ZIP فقط)
+            const geojson = await shp(buffer);
+
             const format = new GeoJSON();
             let features: any[] = [];
             if (Array.isArray(geojson)) {
@@ -157,18 +162,81 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
               const scale = calculateScale(currentRes, parseFloat(wgs.lat));
               onSelectionComplete({ lat: wgs.lat, lng: wgs.lng, scale: scale, bounds: extent });
             }
-          } catch (error) {
+          } catch (error: any) {
             console.error("Error parsing shapefile:", error);
-            alert("Erreur lors de la lecture du fichier Shapefile.");
+            alert("Erreur lors de la lecture du fichier Shapefile. Assurez-vous d'utiliser un fichier ZIP valide.");
           }
         }
       };
       reader.readAsArrayBuffer(file);
     },
+    loadDXF: (file: File, zoneCode: string) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target?.result as string;
+        try {
+            // Access DxfParser from global window object
+            const DxfParser = (window as any).DxfParser;
+            if (!DxfParser) throw new Error("DxfParser library missing or not loaded");
+            
+            const parser = new DxfParser();
+            const dxf = parser.parseSync(text);
+            const features: Feature[] = [];
+            
+            // دالة مساعدة لتحويل الإحداثيات من النطاق المختار إلى إسقاط الخريطة
+            const transform = (x: number, y: number) => {
+                const ll = projectFromZone(x, y, zoneCode);
+                if (ll) return fromLonLat(ll);
+                // في حال الفشل أو إذا كانت الإحداثيات WGS84
+                if (zoneCode === 'EPSG:4326') return fromLonLat([x, y]);
+                return null; 
+            };
+
+            if (dxf && dxf.entities) {
+                for (const entity of dxf.entities) {
+                    if (entity.type === 'LINE') {
+                         const p1 = transform(entity.vertices[0].x, entity.vertices[0].y);
+                         const p2 = transform(entity.vertices[1].x, entity.vertices[1].y);
+                         if (p1 && p2) {
+                             features.push(new Feature(new LineString([p1, p2])));
+                         }
+                    } else if (entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') {
+                        if (entity.vertices && entity.vertices.length > 1) {
+                            const coords = entity.vertices.map((v: any) => transform(v.x, v.y)).filter((c: any) => c !== null);
+                            if (coords.length > 1) {
+                                features.push(new Feature(new LineString(coords)));
+                            }
+                        }
+                    }
+                }
+            }
+            
+            kmlSourceRef.current.clear();
+            sourceRef.current.clear();
+            kmlSourceRef.current.addFeatures(features);
+
+            if (features.length > 0 && mapRef.current) {
+                const extent = kmlSourceRef.current.getExtent();
+                mapRef.current.getView().fit(extent, { padding: [50, 50, 50, 50], duration: 800 });
+                const center = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
+                const wgs = convertToWGS84(center[0], center[1]);
+                const currentRes = mapRef.current.getView().getResolution() || 1;
+                const scale = calculateScale(currentRes, parseFloat(wgs.lat));
+                onSelectionComplete({ lat: wgs.lat, lng: wgs.lng, scale: scale, bounds: extent });
+            } else {
+                alert("Aucune entité supportée trouvée dans le fichier DXF ou coordonnées hors zone.");
+            }
+
+        } catch (err) {
+            console.error("DXF Error:", err);
+            alert("Erreur lors de la lecture du fichier DXF. Vérifiez la console pour plus de détails.");
+        }
+      };
+      reader.readAsText(file);
+    },
     loadExcelPoints: (points) => {
         pointsSourceRef.current.clear();
         const features = points.map((pt, index) => {
-            // pt.x (lng), pt.y (lat) are already expected to be WGS84 here from the service
             const feature = new Feature({
                 geometry: new Point(fromLonLat([pt.x, pt.y])),
                 label: pt.label || `P${index + 1}`
@@ -180,7 +248,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         
         if (features.length > 0 && mapRef.current) {
             const extent = pointsSourceRef.current.getExtent();
-            // Zoom to points with some padding
             if (features.length === 1) {
                 mapRef.current.getView().setCenter(fromLonLat([points[0].x, points[0].y]));
                 mapRef.current.getView().setZoom(16);
@@ -226,7 +293,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     getMapCanvas: async (targetScale) => {
       if (!mapRef.current) return null;
       const map = mapRef.current;
-      // تضمين نقاط Excel في الطباعة إذا وجدت
       const allFeatures = [...kmlSourceRef.current.getFeatures(), ...sourceRef.current.getFeatures(), ...pointsSourceRef.current.getFeatures()];
       if (allFeatures.length === 0) return null;
 
@@ -272,7 +338,21 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             // Handle Polygons
             if (geom instanceof Polygon) coords.push(geom.getCoordinates());
             else if (geom instanceof MultiPolygon) coords.push(...geom.getCoordinates());
-            
+            // Handle Lines (DXF)
+            if (geom instanceof LineString) {
+                const lineCoords = geom.getCoordinates();
+                mapContext.beginPath();
+                lineCoords.forEach((coord, idx) => {
+                    const px = (coord[0] - extent[0]) / exportRes;
+                    const py = (extent[3] - coord[1]) / exportRes;
+                    if (idx === 0) mapContext.moveTo(px, py);
+                    else mapContext.lineTo(px, py);
+                });
+                mapContext.strokeStyle = "#f59e0b";
+                mapContext.lineWidth = 2.5;
+                mapContext.stroke();
+            }
+
             coords.forEach(polyCoords => {
               polyCoords.forEach((ring: any[]) => {
                 ring.forEach((coord, idx) => {
@@ -284,7 +364,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                 mapContext.closePath();
               });
             });
-            // Handle Points (Simple rendering for export)
+            // Handle Points
             if (geom instanceof Point) {
                 const coord = geom.getCoordinates();
                 const px = (coord[0] - extent[0]) / exportRes;
@@ -293,10 +373,9 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                 mapContext.arc(px, py, 5, 0, 2 * Math.PI);
             }
           });
-          // Only clip/stroke if there are polygons drawn. If only points, we don't clip.
+          // Only clip if polygons exist in the drawing source
           if (sourceRef.current.getFeatures().length > 0) mapContext.clip();
           
-          // Draw layers
           const canvases = mapElement.current?.querySelectorAll('.ol-layer canvas');
           canvases?.forEach((canvas: any) => {
             if (canvas.width > 0) {
@@ -314,16 +393,12 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             }
           });
           
-          // Draw Vector overlay (The red lines or points) on top
           mapContext.setTransform(1, 0, 0, 1, 0, 0);
           mapContext.globalAlpha = 1;
           
+          // Redraw points/lines on top to be visible
           allFeatures.forEach(feature => {
-             // Re-draw geometries on top for visibility in export
              const geom = feature.getGeometry();
-             if (geom instanceof Polygon || geom instanceof MultiPolygon) {
-                 // Logic repeated for stroke... simplified for now as main usage is clipping
-             }
              if (geom instanceof Point) {
                  const coord = geom.getCoordinates();
                  const px = (coord[0] - extent[0]) / exportRes;
