@@ -6,7 +6,7 @@ proj4.defs("EPSG:4326", "+proj=longlat +datum=WGS84 +no_defs");
 
 /**
  * تعريف النطاقات المغربية (Maroc Lambert)
- * تم استخدام القيم الدقيقة للتحويل Datum Shift Parameters
+ * Reference: https://epsg.io/
  * Ellipsoid: Clarke 1880 (IGN) -> a=6378249.2, b=6356515.0
  * TOWGS84: 31, 146, 47, 0, 0, 0, 0
  */

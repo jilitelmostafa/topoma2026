@@ -32,10 +32,10 @@ const SCALES = [
 
 const ZONES = [
   { code: 'EPSG:4326', label: 'WGS 84 (GPS Global)' },
-  { code: 'EPSG:26191', label: 'Maroc Zone 1 (Nord)' },
-  { code: 'EPSG:26192', label: 'Maroc Zone 2 (Sud/Centre)' },
-  { code: 'EPSG:26194', label: 'Maroc Zone 3 (Sahara Nord)' },
-  { code: 'EPSG:26195', label: 'Maroc Zone 4 (Sahara Sud)' },
+  { code: 'EPSG:26191', label: 'Nord Maroc (Zone 1) - EPSG:26191' },
+  { code: 'EPSG:26192', label: 'Sud Maroc (Zone 2) - EPSG:26192' },
+  { code: 'EPSG:26194', label: 'Sahara Nord (Zone 3) - EPSG:26194' },
+  { code: 'EPSG:26195', label: 'Sahara Sud (Zone 4) - EPSG:26195' },
 ];
 
 const App: React.FC = () => {
@@ -47,6 +47,7 @@ const App: React.FC = () => {
   const [selectedScale, setSelectedScale] = useState<number>(1000);
   const [mapType, setMapType] = useState<MapType>('satellite');
   const [selectedZone, setSelectedZone] = useState<string>('EPSG:26191'); // Default to Zone 1
+  const [selectedExcelFile, setSelectedExcelFile] = useState<File | null>(null);
   
   const mapComponentRef = useRef<MapComponentRef>(null);
   const kmlInputRef = useRef<HTMLInputElement>(null);
@@ -97,100 +98,97 @@ const App: React.FC = () => {
     return parseFloat(normalized);
   };
 
-  const handleExcelUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // 1. اختيار الملف فقط وتخزينه في الحالة
+  const onExcelFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && mapComponentRef.current) {
-        setActiveTool(null);
-        mapComponentRef.current.setDrawTool(null);
-        
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const data = e.target?.result;
-            if (!data) return;
-            try {
-                const workbook = XLSX.read(data, { type: 'array' });
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-                // قراءة البيانات خام لمعالجة النصوص يدوياً
-                const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
-
-                const validPoints: Array<{x: number, y: number, label?: string}> = [];
-                let successCount = 0;
-                let failCount = 0;
-                
-                jsonData.forEach((row: any) => {
-                    // البحث عن الأعمدة المحتملة بغض النظر عن حالة الأحرف
-                    const xKey = Object.keys(row).find(k => /^(x|lng|lon|longitude|easting)$/i.test(k));
-                    const yKey = Object.keys(row).find(k => /^(y|lat|latitude|northing)$/i.test(k));
-                    const labelKey = Object.keys(row).find(k => /^(id|name|nom|label|point)$/i.test(k));
-
-                    if (xKey && yKey) {
-                        // استخدام دالة التحليل التي تدعم الفاصلة والنقطة
-                        const rawX = parseCoordinateValue(row[xKey]);
-                        const rawY = parseCoordinateValue(row[yKey]);
-
-                        if (!isNaN(rawX) && !isNaN(rawY)) {
-                            // التحويل المباشر باستخدام النطاق المختار
-                            const wgs84 = projectFromZone(rawX, rawY, selectedZone);
-                            
-                            if (wgs84) {
-                                validPoints.push({
-                                    x: wgs84[0],
-                                    y: wgs84[1],
-                                    label: labelKey ? String(row[labelKey]) : undefined
-                                });
-                                successCount++;
-                            } else {
-                                failCount++;
-                            }
-                        }
-                    }
-                });
-
-                if (validPoints.length > 0) {
-                    mapComponentRef.current?.loadExcelPoints(validPoints);
-                    // إعادة تعيين الإدخال للسماح برفع نفس الملف مرة أخرى
-                    if (excelInputRef.current) excelInputRef.current.value = '';
-                    
-                    if (failCount > 0) {
-                        console.warn(`${failCount} points were outside Moroccan bounds or invalid.`);
-                    }
-                } else {
-                    alert("Aucun point valide trouvé. Vérifiez les colonnes X/Y et le système de coordonnées choisi.");
-                }
-
-            } catch (err) {
-                console.error(err);
-                alert("Erreur lors de la lecture du fichier Excel.");
-            }
-        };
-        reader.readAsArrayBuffer(file);
+    if (file) {
+        setSelectedExcelFile(file);
     }
   };
 
-  const startClipping = async () => {
-    // ... (previous code remains same - leveraging imported logic via mapComponent)
-    // For brevity in update, keeping logical flow of importing/exporting.
-    // Full implementation relies on mapComponent methods.
+  // 2. معالجة الملف عند الضغط على زر "رفع"
+  const processExcelFile = () => {
+    if (!selectedExcelFile || !mapComponentRef.current) return;
     
+    setActiveTool(null);
+    mapComponentRef.current.setDrawTool(null);
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const data = e.target?.result;
+        if (!data) return;
+        try {
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            // قراءة البيانات خام لمعالجة النصوص يدوياً
+            const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
+
+            const validPoints: Array<{x: number, y: number, label?: string}> = [];
+            let successCount = 0;
+            let failCount = 0;
+            
+            jsonData.forEach((row: any) => {
+                // البحث عن الأعمدة المحتملة بغض النظر عن حالة الأحرف
+                const xKey = Object.keys(row).find(k => /^(x|lng|lon|longitude|easting)$/i.test(k));
+                const yKey = Object.keys(row).find(k => /^(y|lat|latitude|northing)$/i.test(k));
+                const labelKey = Object.keys(row).find(k => /^(id|name|nom|label|point)$/i.test(k));
+
+                if (xKey && yKey) {
+                    // استخدام دالة التحليل التي تدعم الفاصلة والنقطة
+                    const rawX = parseCoordinateValue(row[xKey]);
+                    const rawY = parseCoordinateValue(row[yKey]);
+
+                    if (!isNaN(rawX) && !isNaN(rawY)) {
+                        // التحويل المباشر باستخدام النطاق المختار
+                        const wgs84 = projectFromZone(rawX, rawY, selectedZone);
+                        
+                        if (wgs84) {
+                            validPoints.push({
+                                x: wgs84[0],
+                                y: wgs84[1],
+                                label: labelKey ? String(row[labelKey]) : undefined
+                            });
+                            successCount++;
+                        } else {
+                            failCount++;
+                        }
+                    }
+                }
+            });
+
+            if (validPoints.length > 0) {
+                mapComponentRef.current?.loadExcelPoints(validPoints);
+                if (failCount > 0) {
+                    alert(`${validPoints.length} points chargés avec succès.\n${failCount} points ignorés (hors zone ou invalides).`);
+                }
+            } else {
+                alert("Aucun point valide trouvé. Vérifiez les colonnes (X, Y) et le système de coordonnées choisi.");
+            }
+
+        } catch (err) {
+            console.error(err);
+            alert("Erreur lors de la lecture du fichier Excel.");
+        }
+    };
+    reader.readAsArrayBuffer(selectedExcelFile);
+  };
+
+  const startClipping = async () => {
     if (!mapComponentRef.current || !exportData) return;
     setStep('PROCESSING');
-    
-    // ... same implementation as before ...
+
      try {
       const result = await mapComponentRef.current.getMapCanvas(selectedScale);
       if (!result) throw new Error("Empty Canvas");
 
       const { canvas, extent } = result;
-      // Using dynamic import of UTIF/proj4 logic handled inside mapComponent or globally declared
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const tiffBuffer = UTIF.encodeImage(imgData.data, canvas.width, canvas.height);
       
-      // Proj4 is imported in App for calculations
-      // Import proj4 locally if needed or rely on global scope if mixed
       const proj4lib = (await import('proj4')).default; 
 
       const minCorner = proj4lib('EPSG:3857', 'EPSG:4326', [extent[0], extent[1]]);
@@ -244,11 +242,12 @@ const App: React.FC = () => {
     setStep('IDLE');
     setActiveTool(null);
     setZipBlob(null);
+    setSelectedExcelFile(null);
   };
 
   return (
     <div className="w-screen h-screen flex bg-slate-950 text-white font-sans overflow-hidden">
-      {/* Sidebar - Left Side (due to LTR) */}
+      {/* Sidebar - Left Side */}
       <div className="w-96 bg-slate-900/80 backdrop-blur-3xl border-r border-white/10 flex flex-col p-6 z-20 shadow-[20px_0_60px_rgba(0,0,0,0.8)]">
         <div className="flex items-center gap-4 mb-8">
           <div className="w-14 h-14 bg-indigo-600 rounded-[22px] flex items-center justify-center text-3xl shadow-2xl shadow-indigo-500/30 border border-indigo-400/20">
@@ -327,31 +326,65 @@ const App: React.FC = () => {
               <span className="text-[11px]">Importer Shapefile (ZIP)</span>
             </button>
 
-            {/* Excel Section */}
-            <div className="bg-slate-800/30 rounded-2xl p-3 border border-white/10 space-y-2">
+            {/* Excel Section (Updated) */}
+            <div className="bg-slate-800/30 rounded-2xl p-3 border border-white/10 space-y-3">
                 <div className="flex items-center justify-between">
                     <label className="text-[10px] font-bold text-blue-400 uppercase">Points (Excel)</label>
                     <i className="fas fa-table text-blue-500"></i>
                 </div>
                 
-                {/* Zone Selection */}
-                <select 
-                    value={selectedZone}
-                    onChange={(e) => setSelectedZone(e.target.value)}
-                    className="w-full bg-slate-900 border border-white/10 text-white text-[10px] p-2 rounded-lg outline-none focus:border-blue-500"
-                >
-                    {ZONES.map(z => (
-                        <option key={z.code} value={z.code}>{z.label}</option>
-                    ))}
-                </select>
+                {/* Zone Selection with EPSG Link */}
+                <div className="space-y-1">
+                    <div className="flex justify-between items-center px-1">
+                        <span className="text-[9px] text-slate-400">Système de Coordonnées</span>
+                        <a href="https://epsg.io/?q=Morocco" target="_blank" rel="noopener noreferrer" className="text-[9px] text-blue-400 hover:text-blue-300 hover:underline">
+                            epsg.io <i className="fas fa-external-link-alt text-[8px]"></i>
+                        </a>
+                    </div>
+                    <select 
+                        value={selectedZone}
+                        onChange={(e) => setSelectedZone(e.target.value)}
+                        className="w-full bg-slate-900 border border-white/10 text-white text-[10px] p-2 rounded-lg outline-none focus:border-blue-500 font-mono"
+                    >
+                        {ZONES.map(z => (
+                            <option key={z.code} value={z.code}>{z.label}</option>
+                        ))}
+                    </select>
+                </div>
 
-                <input type="file" accept=".xlsx, .xls" className="hidden" ref={excelInputRef} onChange={handleExcelUpload} />
+                {/* Step 1: File Selection Button */}
+                <input type="file" accept=".xlsx, .xls" className="hidden" ref={excelInputRef} onChange={onExcelFileSelect} />
+                <div className="flex flex-col gap-2">
+                    <button 
+                        onClick={() => excelInputRef.current?.click()}
+                        className={`w-full py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-[11px] border border-dashed ${
+                            selectedExcelFile 
+                            ? 'bg-slate-700/50 text-white border-white/30' 
+                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-white/10'
+                        }`}
+                    >
+                        <i className={`fas ${selectedExcelFile ? 'fa-check-circle text-emerald-400' : 'fa-folder-open'}`}></i>
+                        <span>{selectedExcelFile ? 'Fichier Sélectionné' : '1. Choisir un fichier Excel'}</span>
+                    </button>
+                    {selectedExcelFile && (
+                        <div className="text-[10px] text-slate-400 text-center truncate px-2 bg-slate-900/50 py-1 rounded">
+                            {selectedExcelFile.name}
+                        </div>
+                    )}
+                </div>
+
+                {/* Step 2: Upload Action Button */}
                 <button 
-                  onClick={() => excelInputRef.current?.click()}
-                  className="w-full bg-blue-600/20 hover:bg-blue-600/40 text-blue-100 border border-blue-500/30 py-2 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-[11px]"
+                  onClick={processExcelFile}
+                  disabled={!selectedExcelFile}
+                  className={`w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-[11px] shadow-lg ${
+                      selectedExcelFile 
+                      ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20 cursor-pointer' 
+                      : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-white/5 opacity-50'
+                  }`}
                 >
-                  <i className="fas fa-upload"></i>
-                  <span>Charger Fichier X/Y</span>
+                  <i className="fas fa-cloud-upload-alt"></i>
+                  <span>2. Charger & Traiter</span>
                 </button>
             </div>
           </div>
