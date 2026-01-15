@@ -32,10 +32,10 @@ const SCALES = [
 
 const ZONES = [
   { code: 'EPSG:4326', label: 'WGS 84 (GPS Global)' },
-  { code: 'EPSG:26191', label: 'Nord Maroc (Zone 1) - EPSG:26191' },
-  { code: 'EPSG:26192', label: 'Sud Maroc (Zone 2) - EPSG:26192' },
-  { code: 'EPSG:26194', label: 'Sahara Nord (Zone 3) - EPSG:26194' },
-  { code: 'EPSG:26195', label: 'Sahara Sud (Zone 4) - EPSG:26195' },
+  { code: 'EPSG:26191', label: 'Nord Maroc (Zone 1)' },
+  { code: 'EPSG:26192', label: 'Sud Maroc (Zone 2)' },
+  { code: 'EPSG:26194', label: 'Sahara Nord (Zone 3)' },
+  { code: 'EPSG:26195', label: 'Sahara Sud (Zone 4)' },
 ];
 
 const App: React.FC = () => {
@@ -181,6 +181,7 @@ const App: React.FC = () => {
                 if (failCount > 0) {
                     alert(`${validPoints.length} points chargés avec succès.\n${failCount} points ignorés (hors zone ou invalides).`);
                 }
+                setSelectedExcelFile(null); // Reset after load
             } else {
                 alert("Aucun point valide trouvé. Vérifiez les colonnes (X, Y) et le système de coordonnées choisi.");
             }
@@ -265,184 +266,158 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="w-screen h-screen flex bg-slate-950 text-white font-sans overflow-hidden">
+    <div className="w-screen h-screen flex bg-slate-50 text-slate-800 font-sans overflow-hidden">
       {/* Sidebar - Left Side */}
-      <div className="w-96 bg-slate-900/80 backdrop-blur-3xl border-r border-white/10 flex flex-col p-6 z-20 shadow-[20px_0_60px_rgba(0,0,0,0.8)]">
+      <div className="w-96 bg-white/90 backdrop-blur-3xl border-r border-slate-200 flex flex-col p-6 z-20 shadow-[10px_0_40px_rgba(0,0,0,0.05)]">
         <div className="flex items-center gap-4 mb-8">
-          <div className="w-14 h-14 bg-indigo-600 rounded-[22px] flex items-center justify-center text-3xl shadow-2xl shadow-indigo-500/30 border border-indigo-400/20">
-            <i className="fas fa-satellite-dish"></i>
+          <div className="w-14 h-14 bg-indigo-600 rounded-[22px] flex items-center justify-center text-3xl shadow-xl shadow-indigo-500/20 border border-indigo-400/20">
+            <i className="fas fa-satellite-dish text-white"></i>
           </div>
           <div>
-            <h1 className="text-2xl font-black tracking-tighter uppercase leading-none">GeoMapper</h1>
-            <p className="text-[9px] text-indigo-400 font-black tracking-[0.4em] mt-1">SIG CLIPPING PRO</p>
+            <h1 className="text-2xl font-black tracking-tighter uppercase leading-none text-slate-900">GeoMapper</h1>
+            <p className="text-[9px] text-indigo-600 font-black tracking-[0.4em] mt-1">SIG CLIPPING PRO</p>
           </div>
         </div>
 
         <div className="space-y-6 flex-grow overflow-y-auto no-scrollbar">
-          {/* Map Layer Settings */}
-          <div className="bg-slate-800/40 p-5 rounded-3xl border border-white/5 space-y-4">
-             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Fond de Plan</label>
-             <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-white/5">
-                <button 
-                  onClick={() => setMapType('satellite')}
-                  className={`flex-1 py-3 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-2 ${mapType === 'satellite' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}
-                >
-                  <i className="fas fa-globe"></i>
-                  Satellite
-                </button>
-                <button 
-                  onClick={() => setMapType('hybrid')}
-                  className={`flex-1 py-3 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-2 ${mapType === 'hybrid' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}
-                >
-                  <i className="fas fa-map-marked-alt"></i>
-                  Hybride
-                </button>
-             </div>
-          </div>
-
-          {/* File Uploads (KML, SHP, DXF, Excel) */}
-          <div className="space-y-3 pt-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Importation</label>
+          
+          {/* IMPORT SECTION - Professional Grid Layout */}
+          <div className="pt-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-3 flex items-center justify-between">
+              <span>Importation & Données</span>
+              <i className="fas fa-database text-slate-400"></i>
+            </label>
             
-            {/* KML */}
-            <input type="file" accept=".kml,.kmz" className="hidden" ref={kmlInputRef} onChange={handleKMLUpload} />
-            <button 
-              onClick={() => kmlInputRef.current?.click()}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95 mb-2"
-            >
-              <i className="fas fa-file-code text-lg text-amber-500"></i>
-              <span className="text-[11px]">Importer KML / KMZ</span>
-            </button>
+            <div className="bg-slate-50 rounded-3xl p-4 border border-slate-200 space-y-4">
+               {/* 1. Projection System (Affects DXF & Excel) */}
+               <div className="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-2">
+                     <span className="text-[9px] text-indigo-600 font-bold uppercase">Projection (Zone)</span>
+                     <a href="https://epsg.io/?q=Morocco" target="_blank" rel="noopener noreferrer" className="text-[9px] text-slate-400 hover:text-indigo-500"><i className="fas fa-info-circle"></i></a>
+                  </div>
+                  <select 
+                      value={selectedZone}
+                      onChange={(e) => setSelectedZone(e.target.value)}
+                      className="w-full bg-slate-50 text-slate-700 text-[10px] p-2 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500/50 font-medium border border-slate-200 cursor-pointer hover:bg-slate-100 transition-colors"
+                  >
+                      {ZONES.map(z => (
+                          <option key={z.code} value={z.code}>{z.label}</option>
+                      ))}
+                  </select>
+               </div>
 
-            {/* SHP (ZIP) */}
-            <input type="file" accept=".zip" className="hidden" ref={shpInputRef} onChange={handleShapefileUpload} />
-            <button 
-              onClick={() => shpInputRef.current?.click()}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95 mb-2"
-            >
-              <i className="fas fa-file-archive text-lg text-green-500"></i>
-              <span className="text-[11px]">Importer Shapefile (ZIP)</span>
-            </button>
-
-            {/* DXF */}
-            <input type="file" accept=".dxf" className="hidden" ref={dxfInputRef} onChange={handleDXFUpload} />
-            <button 
-              onClick={() => dxfInputRef.current?.click()}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95 mb-2"
-            >
-              <i className="fas fa-drafting-compass text-lg text-purple-500"></i>
-              <span className="text-[11px]">Importer DXF</span>
-            </button>
-
-            {/* Excel Section (Updated) */}
-            <div className="bg-slate-800/30 rounded-2xl p-3 border border-white/10 space-y-3">
-                <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-bold text-blue-400 uppercase">Points (Excel) / DXF Zone</label>
-                    <i className="fas fa-table text-blue-500"></i>
-                </div>
-                
-                {/* Zone Selection with EPSG Link */}
-                <div className="space-y-1">
-                    <div className="flex justify-between items-center px-1">
-                        <span className="text-[9px] text-slate-400">Système de Coordonnées</span>
-                        <a href="https://epsg.io/?q=Morocco" target="_blank" rel="noopener noreferrer" className="text-[9px] text-blue-400 hover:text-blue-300 hover:underline">
-                            epsg.io <i className="fas fa-external-link-alt text-[8px]"></i>
-                        </a>
+               {/* 2. File Type Grid */}
+               <div className="grid grid-cols-2 gap-3">
+                  {/* KML */}
+                  <input type="file" accept=".kml,.kmz" className="hidden" ref={kmlInputRef} onChange={handleKMLUpload} />
+                  <button 
+                    onClick={() => kmlInputRef.current?.click()}
+                    className="bg-white hover:bg-slate-50 border border-slate-200 hover:border-amber-400 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all group active:scale-95 shadow-sm hover:shadow-md"
+                  >
+                    <div className="w-10 h-10 bg-amber-50 rounded-full flex items-center justify-center text-amber-500 group-hover:bg-amber-500 group-hover:text-white transition-colors">
+                       <i className="fas fa-map-marker-alt text-lg"></i>
                     </div>
-                    <select 
-                        value={selectedZone}
-                        onChange={(e) => setSelectedZone(e.target.value)}
-                        className="w-full bg-slate-900 border border-white/10 text-white text-[10px] p-2 rounded-lg outline-none focus:border-blue-500 font-mono"
-                    >
-                        {ZONES.map(z => (
-                            <option key={z.code} value={z.code}>{z.label}</option>
-                        ))}
-                    </select>
-                </div>
+                    <span className="text-[10px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">KML / KMZ</span>
+                  </button>
 
-                {/* Step 1: File Selection Button */}
-                <input type="file" accept=".xlsx, .xls" className="hidden" ref={excelInputRef} onChange={onExcelFileSelect} />
-                <div className="flex flex-col gap-2">
+                  {/* SHP */}
+                  <input type="file" accept=".zip" className="hidden" ref={shpInputRef} onChange={handleShapefileUpload} />
+                  <button 
+                    onClick={() => shpInputRef.current?.click()}
+                    className="bg-white hover:bg-slate-50 border border-slate-200 hover:border-emerald-400 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all group active:scale-95 shadow-sm hover:shadow-md"
+                  >
+                    <div className="w-10 h-10 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                       <i className="fas fa-layer-group text-lg"></i>
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">Shapefile</span>
+                  </button>
+
+                  {/* DXF */}
+                  <input type="file" accept=".dxf" className="hidden" ref={dxfInputRef} onChange={handleDXFUpload} />
+                  <button 
+                    onClick={() => dxfInputRef.current?.click()}
+                    className="bg-white hover:bg-slate-50 border border-slate-200 hover:border-purple-400 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all group active:scale-95 shadow-sm hover:shadow-md"
+                  >
+                    <div className="w-10 h-10 bg-purple-50 rounded-full flex items-center justify-center text-purple-500 group-hover:bg-purple-500 group-hover:text-white transition-colors">
+                       <i className="fas fa-drafting-compass text-lg"></i>
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">Plan DXF</span>
+                  </button>
+
+                  {/* EXCEL */}
+                  <input type="file" accept=".xlsx, .xls" className="hidden" ref={excelInputRef} onChange={onExcelFileSelect} />
+                  <button 
+                    onClick={() => excelInputRef.current?.click()}
+                    className={`bg-white hover:bg-slate-50 border border-slate-200 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all group active:scale-95 shadow-sm hover:shadow-md ${selectedExcelFile ? 'border-blue-500 bg-blue-50' : 'hover:border-blue-400'}`}
+                  >
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${selectedExcelFile ? 'bg-blue-500 text-white' : 'bg-blue-50 text-blue-500 group-hover:bg-blue-500 group-hover:text-white'}`}>
+                       <i className="fas fa-table text-lg"></i>
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-500 group-hover:text-slate-700 uppercase tracking-wider">Excel Pts</span>
+                  </button>
+               </div>
+
+               {/* Excel Processing Action Bar (Appears only when file selected) */}
+               {selectedExcelFile && (
+                 <div className="animate-in slide-in-from-top fade-in duration-300">
                     <button 
-                        onClick={() => excelInputRef.current?.click()}
-                        className={`w-full py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-[11px] border border-dashed ${
-                            selectedExcelFile 
-                            ? 'bg-slate-700/50 text-white border-white/30' 
-                            : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-white/10'
-                        }`}
+                      onClick={processExcelFile}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl text-[11px] font-bold shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
                     >
-                        <i className={`fas ${selectedExcelFile ? 'fa-check-circle text-emerald-400' : 'fa-folder-open'}`}></i>
-                        <span>{selectedExcelFile ? 'Fichier Sélectionné' : '1. Choisir un fichier Excel'}</span>
+                      <i className="fas fa-check-circle"></i>
+                      <span>Charger : {selectedExcelFile.name.length > 15 ? selectedExcelFile.name.substring(0, 15) + '...' : selectedExcelFile.name}</span>
                     </button>
-                    {selectedExcelFile && (
-                        <div className="text-[10px] text-slate-400 text-center truncate px-2 bg-slate-900/50 py-1 rounded">
-                            {selectedExcelFile.name}
-                        </div>
-                    )}
-                </div>
-
-                {/* Step 2: Upload Action Button */}
-                <button 
-                  onClick={processExcelFile}
-                  disabled={!selectedExcelFile}
-                  className={`w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-[11px] shadow-lg ${
-                      selectedExcelFile 
-                      ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20 cursor-pointer' 
-                      : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-white/5 opacity-50'
-                  }`}
-                >
-                  <i className="fas fa-cloud-upload-alt"></i>
-                  <span>2. Charger & Traiter</span>
-                </button>
+                 </div>
+               )}
             </div>
           </div>
 
           {/* Scale Selection & Map Zoom Control */}
-          <div className="pt-4 p-5 bg-indigo-500/5 rounded-3xl border border-indigo-500/10 animate-in fade-in duration-700">
-            <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-4">Échelle et Exportation</label>
+          <div className="pt-4 p-5 bg-indigo-50 rounded-3xl border border-indigo-100 animate-in fade-in duration-700">
+            <label className="text-[10px] font-black text-indigo-500 uppercase tracking-widest block mb-4">Échelle et Exportation</label>
             <div className="relative group">
               <select 
                 value={selectedScale}
                 onChange={(e) => handleScaleChange(Number(e.target.value))}
-                className="w-full bg-slate-900 border border-white/10 p-5 rounded-2xl text-white font-black appearance-none focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer group-hover:border-indigo-500/50"
+                className="w-full bg-white border border-slate-200 p-5 rounded-2xl text-slate-900 font-black appearance-none focus:ring-2 focus:ring-indigo-500 outline-none transition-all cursor-pointer group-hover:border-indigo-400 shadow-sm"
               >
-                {SCALES.map(s => <option key={s.value} value={s.value} className="bg-slate-900 text-white">{s.label}</option>)}
+                {SCALES.map(s => <option key={s.value} value={s.value} className="bg-white text-slate-900">{s.label}</option>)}
               </select>
-              <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-indigo-400">
+              <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-indigo-500">
                 <i className="fas fa-search-location"></i>
               </div>
             </div>
           </div>
 
           {/* Workflow Controller */}
-          <div className="pt-6 border-t border-white/10">
+          <div className="pt-6 border-t border-slate-200">
             {step === 'IDLE' && (
-              <div className="bg-slate-800/20 rounded-3xl p-6 text-center border border-white/5">
-                <p className="text-slate-400 text-xs font-bold leading-relaxed">En attente de dessin ou d'importation...</p>
+              <div className="bg-slate-100 rounded-3xl p-6 text-center border border-slate-200">
+                <p className="text-slate-500 text-xs font-bold leading-relaxed">En attente de dessin ou d'importation...</p>
               </div>
             )}
 
             {step === 'SELECTED' && exportData && (
               <div className="space-y-5 animate-in slide-in-from-bottom duration-500">
-                <div className="bg-indigo-600/10 rounded-3xl p-6 border border-indigo-500/20 shadow-inner">
-                  <h3 className="text-indigo-400 font-black text-[10px] uppercase tracking-wider mb-4 flex items-center gap-2">
+                <div className="bg-indigo-50 rounded-3xl p-6 border border-indigo-100 shadow-inner">
+                  <h3 className="text-indigo-600 font-black text-[10px] uppercase tracking-wider mb-4 flex items-center gap-2">
                     <i className="fas fa-info-circle"></i>
                     Données de la Zone
                   </h3>
                   <div className="grid grid-cols-2 gap-4 text-[11px]">
-                    <div className="bg-slate-950 p-3 rounded-xl border border-white/5">
-                      <span className="text-slate-500 block mb-1 uppercase text-[9px]">Lat</span>
-                      <span className="font-mono text-white">{exportData.lat}</span>
+                    <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                      <span className="text-slate-400 block mb-1 uppercase text-[9px]">Lat</span>
+                      <span className="font-mono text-slate-900">{exportData.lat}</span>
                     </div>
-                    <div className="bg-slate-950 p-3 rounded-xl border border-white/5">
-                      <span className="text-slate-500 block mb-1 uppercase text-[9px]">Lng</span>
-                      <span className="font-mono text-white">{exportData.lng}</span>
+                    <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                      <span className="text-slate-400 block mb-1 uppercase text-[9px]">Lng</span>
+                      <span className="font-mono text-slate-900">{exportData.lng}</span>
                     </div>
                   </div>
                 </div>
                 <button 
                   onClick={startClipping}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 py-6 rounded-3xl font-black text-lg shadow-2xl shadow-indigo-600/40 flex items-center justify-center gap-4 transition-all active:scale-95 group"
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 py-6 rounded-3xl font-black text-lg shadow-2xl shadow-indigo-600/30 flex items-center justify-center gap-4 transition-all active:scale-95 group text-white"
                 >
                   <i className="fas fa-scissors group-hover:-rotate-45 transition-transform"></i>
                   <span>Exporter SIG (GeoTIFF)</span>
@@ -451,33 +426,33 @@ const App: React.FC = () => {
             )}
 
             {step === 'PROCESSING' && (
-              <div className="text-center py-12 space-y-6 bg-slate-800/10 rounded-3xl border border-white/5">
+              <div className="text-center py-12 space-y-6 bg-white rounded-3xl border border-slate-200 shadow-sm">
                 <div className="relative w-24 h-24 mx-auto">
-                  <div className="absolute inset-0 border-4 border-indigo-600/10 rounded-full"></div>
+                  <div className="absolute inset-0 border-4 border-indigo-100 rounded-full"></div>
                   <div className="absolute inset-0 border-4 border-t-indigo-600 rounded-full animate-spin"></div>
-                  <div className="absolute inset-0 flex items-center justify-center text-indigo-400">
+                  <div className="absolute inset-0 flex items-center justify-center text-indigo-600">
                     <i className="fas fa-satellite-dish text-2xl animate-pulse"></i>
                   </div>
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold">Traitement en cours</h3>
-                  <p className="text-slate-400 text-sm mt-2">Extraction à l'échelle 1:{selectedScale}</p>
+                  <h3 className="text-xl font-bold text-slate-800">Traitement en cours</h3>
+                  <p className="text-slate-500 text-sm mt-2">Extraction à l'échelle 1:{selectedScale}</p>
                 </div>
               </div>
             )}
 
             {step === 'DONE' && (
               <div className="space-y-6 animate-in zoom-in duration-500">
-                <div className="bg-emerald-500/10 rounded-3xl p-8 text-center border border-emerald-500/20 shadow-2xl shadow-emerald-500/10">
-                  <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                     <i className="fas fa-check-circle text-3xl text-emerald-500"></i>
+                <div className="bg-emerald-50 rounded-3xl p-8 text-center border border-emerald-100 shadow-2xl shadow-emerald-500/10">
+                  <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                     <i className="fas fa-check-circle text-3xl text-emerald-600"></i>
                   </div>
-                  <h3 className="text-xl font-black text-white uppercase">Package Prêt</h3>
-                  <p className="text-slate-400 text-xs mt-2 font-medium">1:{selectedScale} | TIF + TFW + PRJ</p>
+                  <h3 className="text-xl font-black text-slate-800 uppercase">Package Prêt</h3>
+                  <p className="text-slate-500 text-xs mt-2 font-medium">1:{selectedScale} | TIF + TFW + PRJ</p>
                 </div>
                 <button 
                   onClick={downloadFile}
-                  className="w-full bg-emerald-600 hover:bg-emerald-700 py-6 rounded-3xl font-black text-lg shadow-2xl shadow-emerald-600/40 flex items-center justify-center gap-4 transition-all active:scale-95"
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 py-6 rounded-3xl font-black text-lg shadow-2xl shadow-emerald-600/30 flex items-center justify-center gap-4 transition-all active:scale-95 text-white"
                 >
                   <i className="fas fa-download text-xl"></i>
                   <span>Télécharger (ZIP)</span>
@@ -487,10 +462,10 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <div className="pt-6 border-t border-white/5">
+        <div className="pt-6 border-t border-slate-200">
            <button 
             onClick={resetAll}
-            className="w-full text-slate-500 hover:text-red-400 py-4 text-[10px] font-black uppercase tracking-[0.3em] transition-colors flex items-center justify-center gap-2"
+            className="w-full text-slate-400 hover:text-red-500 py-4 text-[10px] font-black uppercase tracking-[0.3em] transition-colors flex items-center justify-center gap-2"
            >
              <i className="fas fa-undo-alt"></i> Réinitialiser la carte
            </button>
@@ -516,7 +491,7 @@ const App: React.FC = () => {
             className={`w-10 h-10 rounded-md flex items-center justify-center transition-all shadow-lg border relative group ${
               activeTool === 'Rectangle' 
                 ? 'bg-indigo-600 border-indigo-400 text-white' 
-                : 'bg-slate-900/90 border-white/10 text-slate-400 hover:text-white hover:bg-slate-800'
+                : 'bg-white border-slate-200 text-slate-500 hover:text-indigo-600 hover:bg-slate-50'
             }`}
           >
             <img 
@@ -525,7 +500,7 @@ const App: React.FC = () => {
               alt="Rectangle"
             />
             {/* Tooltip */}
-            <div className="absolute left-full ml-3 px-3 py-1.5 bg-slate-900 text-white text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-white/10 pointer-events-none shadow-xl">
+            <div className="absolute left-full ml-3 px-3 py-1.5 bg-white text-slate-700 text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-slate-200 pointer-events-none shadow-xl">
               Rectangle
             </div>
           </button>
@@ -535,38 +510,73 @@ const App: React.FC = () => {
             className={`w-10 h-10 rounded-md flex items-center justify-center transition-all shadow-lg border relative group ${
               activeTool === 'Polygon' 
                 ? 'bg-indigo-600 border-indigo-400 text-white' 
-                : 'bg-slate-900/90 border-white/10 text-slate-400 hover:text-white hover:bg-slate-800'
+                : 'bg-white border-slate-200 text-slate-500 hover:text-indigo-600 hover:bg-slate-50'
             }`}
           >
             <img 
               src="https://tool-online.com/Images/Polygone.png" 
-              className="w-5 h-5 invert" 
+              className="w-5 h-5 invert mix-blend-difference" 
               alt="Polygone"
             />
              {/* Tooltip */}
-            <div className="absolute left-full ml-3 px-3 py-1.5 bg-slate-900 text-white text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-white/10 pointer-events-none shadow-xl">
+            <div className="absolute left-full ml-3 px-3 py-1.5 bg-white text-slate-700 text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-slate-200 pointer-events-none shadow-xl">
               Polygone
             </div>
           </button>
         </div>
+
+        {/* Map Layers Control - Top Right */}
+        <div className="absolute right-4 top-4 z-10">
+          <div className="bg-white/90 backdrop-blur-md p-1.5 rounded-lg border border-slate-200 shadow-xl flex flex-col gap-1">
+            <div className="p-1.5 text-center border-b border-slate-100 mb-1">
+               <i className="fas fa-layer-group text-slate-500 text-sm"></i>
+            </div>
+            
+            <button
+              onClick={() => setMapType('satellite')}
+              className={`w-10 h-10 rounded-md flex items-center justify-center transition-all relative group ${
+                 mapType === 'satellite' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              <i className="fas fa-globe"></i>
+               {/* Tooltip */}
+               <div className="absolute right-full mr-3 px-2 py-1 bg-white text-slate-700 text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-slate-200 pointer-events-none shadow-lg">
+                  Satellite
+               </div>
+            </button>
+
+            <button
+              onClick={() => setMapType('hybrid')}
+              className={`w-10 h-10 rounded-md flex items-center justify-center transition-all relative group ${
+                 mapType === 'hybrid' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              <i className="fas fa-map-marked-alt"></i>
+              {/* Tooltip */}
+               <div className="absolute right-full mr-3 px-2 py-1 bg-white text-slate-700 text-[10px] font-bold rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-slate-200 pointer-events-none shadow-lg">
+                  Hybride
+               </div>
+            </button>
+          </div>
+        </div>
         
         {/* Indicators Overlay */}
-        <div className="absolute bottom-8 left-8 bg-slate-900/90 backdrop-blur-2xl p-6 rounded-[32px] border border-white/10 pointer-events-none flex items-center gap-8 shadow-2xl">
+        <div className="absolute bottom-8 left-8 bg-white/90 backdrop-blur-2xl p-6 rounded-[32px] border border-slate-200 pointer-events-none flex items-center gap-8 shadow-2xl">
           <div className="flex items-center gap-4">
              <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.5)]"></div>
              <div className="flex flex-col">
-               <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Système Prêt</span>
+               <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Système Prêt</span>
                <span className="text-[8px] text-slate-500 font-bold">{mapType === 'satellite' ? 'Vue Satellite' : 'Vue Hybride'}</span>
              </div>
           </div>
-          <div className="h-6 w-px bg-white/10"></div>
+          <div className="h-6 w-px bg-slate-200"></div>
           <div className="flex items-center gap-4">
-             <div className="w-10 h-10 bg-indigo-600/20 rounded-xl flex items-center justify-center text-indigo-400 border border-indigo-400/20">
+             <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-500 border border-indigo-100">
                <i className="fas fa-expand text-sm"></i>
              </div>
              <div className="flex flex-col">
-               <span className="text-[10px] font-black uppercase tracking-widest text-white">Échelle Cible</span>
-               <span className="text-[10px] text-indigo-400 font-black">1:{selectedScale}</span>
+               <span className="text-[10px] font-black uppercase tracking-widest text-slate-800">Échelle Cible</span>
+               <span className="text-[10px] text-indigo-600 font-black">1:{selectedScale}</span>
              </div>
           </div>
         </div>
@@ -575,7 +585,7 @@ const App: React.FC = () => {
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        option { padding: 12px; background: #0f172a; font-weight: bold; }
+        option { padding: 12px; background: white; color: #1e293b; font-weight: bold; }
       `}</style>
     </div>
   );

@@ -519,16 +519,16 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
   }, []);
 
   return (
-      <div ref={mapElement} className="w-full h-full bg-slate-900 relative">
+      <div ref={mapElement} className="w-full h-full bg-slate-50 relative">
           {/* Popup Element */}
-          <div ref={popupRef} className="bg-slate-900/90 backdrop-blur border border-white/10 rounded-xl p-3 shadow-xl pointer-events-none transform translate-y-[-10px] min-w-[200px]">
+          <div ref={popupRef} className="bg-white/95 backdrop-blur border border-slate-200 rounded-xl p-3 shadow-xl pointer-events-none transform translate-y-[-10px] min-w-[200px]">
              {popupContent && (
                  <div className="text-center">
-                     <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Surface Calculée</div>
-                     <div className="text-sm font-black text-white mb-1">
+                     <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Surface Calculée</div>
+                     <div className="text-sm font-black text-slate-900 mb-1">
                         Surface : {popupContent.m2} m²
                      </div>
-                     <div className="text-xs font-mono text-emerald-400 font-bold">
+                     <div className="text-xs font-mono text-emerald-600 font-bold">
                         {popupContent.ha}
                      </div>
                  </div>
