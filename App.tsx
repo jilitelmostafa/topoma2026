@@ -89,11 +89,10 @@ const App: React.FC = () => {
   
   // Measurement State
   const [measureUnit, setMeasureUnit] = useState<string>('m');
-  const [showMeasureMenu, setShowMeasureMenu] = useState(false);
 
   // UI Layout State
-  const [tocOpen, setTocOpen] = useState(true); // Table of Contents (Now Right)
-  const [toolboxOpen, setToolboxOpen] = useState(false); // Export Tools (Now Left)
+  const [tocOpen, setTocOpen] = useState(true); // Table of Contents (Right)
+  const [toolboxOpen, setToolboxOpen] = useState(false); // Export Tools (Left)
   const [showGoToPanel, setShowGoToPanel] = useState(false); // Floating "Go To XY" Panel
   const [showExcelPanel, setShowExcelPanel] = useState(false); // Floating "Excel Import" Panel
   
@@ -127,7 +126,6 @@ const App: React.FC = () => {
   const toggleTool = (tool: ToolType) => {
     const newTool = activeTool === tool ? null : tool;
     setActiveTool(newTool);
-    setShowMeasureMenu(false); // Close menu if a tool is picked
     
     // Set default units when switching tools if necessary
     if (newTool === 'MeasureLength' && !LENGTH_UNITS.find(u => u.value === measureUnit)) {
@@ -373,12 +371,13 @@ const App: React.FC = () => {
       {/* --- 1. MAIN TOOLBAR (Compact) --- */}
       <div className="bg-neutral-100 border-b border-neutral-300 p-1 flex items-center gap-1 shadow-sm shrink-0 h-10">
           
-          {/* LEFT: ArcToolbox Toggle (Moved Here) */}
+          {/* LEFT: GeoTIFF Toggle (Was ArcToolbox) */}
           <button 
             onClick={() => setToolboxOpen(!toolboxOpen)}
             className={`h-8 px-3 flex items-center gap-2 rounded border mr-2 ${toolboxOpen ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`}
+            title="Export GeoTIFF"
           >
-              <i className="fas fa-tools text-red-700"></i> <span className="text-xs font-bold hidden md:inline">ArcToolbox</span>
+              <i className="fas fa-file-image text-green-700"></i> <span className="text-xs font-bold hidden md:inline">GeoTIFF</span>
           </button>
 
           {/* File Operations */}
@@ -400,7 +399,7 @@ const App: React.FC = () => {
                </div>
           </div>
 
-          {/* Basic Navigation */}
+          {/* Basic Navigation & Measurement */}
           <div className="flex items-center px-2 border-r border-neutral-300 gap-1">
               <button 
                 onClick={() => toggleTool('Pan')} 
@@ -415,23 +414,38 @@ const App: React.FC = () => {
               <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300" title="Zoom Out" onClick={() => mapComponentRef.current?.setMapScale(selectedScale * 2)}>
                   <i className="fas fa-search-minus text-neutral-700"></i>
               </button>
-              
-              {/* Unit Selector (Always visible if measurement tool is active) */}
-              {(activeTool === 'MeasureLength' || activeTool === 'MeasureArea') && (
-                  <div className="flex items-center ml-2 border-l border-neutral-300 pl-2">
-                    <span className="text-[10px] text-neutral-500 mr-1 uppercase font-bold">Unit:</span>
-                    <select 
-                        value={measureUnit}
-                        onChange={(e) => handleUnitChange(e.target.value)}
-                        className="h-6 text-xs border border-neutral-400 rounded px-1 bg-white focus:outline-none"
-                    >
-                        {activeTool === 'MeasureLength' 
-                            ? LENGTH_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
-                            : AREA_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
-                        }
-                    </select>
-                  </div>
-              )}
+
+              {/* Measurement Section (Dark Yellow Rulers) */}
+              <div className="flex items-center gap-1 ml-2 pl-2 border-l border-neutral-300 bg-yellow-50/50 rounded px-1">
+                  <button 
+                    onClick={() => toggleTool('MeasureLength')} 
+                    className={`w-8 h-8 flex items-center justify-center rounded border transition-colors ${activeTool === 'MeasureLength' ? 'bg-yellow-200 border-yellow-400' : 'hover:bg-yellow-100 border-transparent'}`} 
+                    title="Mesurer une Distance"
+                  >
+                      <i className="fas fa-ruler text-yellow-700"></i>
+                  </button>
+                  <button 
+                    onClick={() => toggleTool('MeasureArea')} 
+                    className={`w-8 h-8 flex items-center justify-center rounded border transition-colors ${activeTool === 'MeasureArea' ? 'bg-yellow-200 border-yellow-400' : 'hover:bg-yellow-100 border-transparent'}`} 
+                    title="Mesurer une Surface"
+                  >
+                      <i className="fas fa-ruler-combined text-yellow-700"></i>
+                  </button>
+                  
+                  {/* Integrated Unit Selector */}
+                  <select 
+                      value={measureUnit}
+                      onChange={(e) => handleUnitChange(e.target.value)}
+                      className="h-6 text-xs border border-yellow-300 rounded px-1 bg-white focus:outline-none ml-1 text-neutral-700"
+                      title="Unités de mesure"
+                  >
+                      {(activeTool === 'MeasureArea' || (!activeTool && measureUnit.includes('sq'))) // Simple check to show area units if last used or default
+                        ? AREA_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
+                        : LENGTH_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
+                      }
+                      {/* Note: Logic to swap unit list based on tool is handled in toggleTool state, here we render based on current state */}
+                  </select>
+              </div>
           </div>
 
           {/* RIGHT: Table of Contents Toggle */}
@@ -448,17 +462,17 @@ const App: React.FC = () => {
       {/* --- 2. MAIN WORKSPACE --- */}
       <div className="flex-grow flex relative overflow-hidden">
           
-          {/* LEFT PANEL: ARCTOOLBOX (Export) - Was Right */}
+          {/* LEFT PANEL: Export Tools (GeoTIFF) */}
           <div className={`${toolboxOpen ? 'w-72 translate-x-0' : 'w-0 -translate-x-full opacity-0'} transition-all duration-300 bg-white border-r border-neutral-300 flex flex-col shrink-0 overflow-hidden absolute left-0 top-0 h-full z-20 shadow-lg md:shadow-none`}>
-               <div className="bg-neutral-100 p-2 border-b border-neutral-300 font-bold text-xs text-red-800 flex justify-between items-center">
-                  <span><i className="fas fa-tools mr-1"></i> ArcToolbox</span>
-                  <button onClick={() => setToolboxOpen(false)} className="text-neutral-500 hover:text-red-600"><i className="fas fa-times"></i></button>
+               <div className="bg-neutral-100 p-2 border-b border-neutral-300 font-bold text-xs text-green-800 flex justify-between items-center">
+                  <span><i className="fas fa-file-image mr-1"></i> Export GeoTIFF</span>
+                  <button onClick={() => setToolboxOpen(false)} className="text-neutral-500 hover:text-green-600"><i className="fas fa-times"></i></button>
               </div>
               
               <div className="flex-grow overflow-y-auto p-3 bg-neutral-50">
                    <div className="border border-neutral-300 bg-white mb-2 shadow-sm rounded-sm">
                        <div className="bg-neutral-200 px-2 py-1.5 text-xs font-bold border-b border-neutral-300 flex items-center gap-2 text-neutral-700">
-                           <i className="fas fa-hammer text-neutral-500"></i> Clip Raster (GeoTIFF)
+                           <i className="fas fa-crop-alt text-neutral-500"></i> Clip Raster
                        </div>
                        <div className="p-3 text-xs space-y-4">
                            <div>
@@ -506,7 +520,7 @@ const App: React.FC = () => {
                    </div>
 
                    <div className="text-[10px] text-neutral-400 text-center mt-6 leading-tight">
-                       GeoMapper Pro v1.3 <br/> Compatible with ArcGIS / QGIS
+                       GeoMapper Pro v1.4 <br/> Compatible with ArcGIS / QGIS
                    </div>
               </div>
           </div>
@@ -525,7 +539,7 @@ const App: React.FC = () => {
                       >
                           <i className="fas fa-map-marker-alt text-lg text-red-600"></i>
                       </button>
-                      {/* Go To Panel Content (Same as before) */}
+                      {/* Go To Panel Content */}
                       <div className={`pointer-events-auto mt-2 bg-white rounded-lg shadow-xl border border-neutral-300 p-3 w-64 transition-all duration-200 origin-top-right absolute top-full right-0 ${showGoToPanel ? 'scale-100 opacity-100' : 'scale-90 opacity-0 hidden'}`}>
                           <div className="flex justify-between items-center mb-2 border-b border-neutral-100 pb-1">
                               <span className="text-xs font-bold text-neutral-700">Aller à XY</span>
@@ -602,34 +616,15 @@ const App: React.FC = () => {
                       <i className="fas fa-draw-polygon text-lg"></i>
                   </button>
 
-                  {/* Tool: Measure Combined */}
-                  <div className="relative flex flex-col items-end group" onMouseEnter={() => setShowMeasureMenu(true)} onMouseLeave={() => setShowMeasureMenu(false)}>
-                      <button 
-                        className={`pointer-events-auto w-10 h-10 rounded-lg shadow-md border flex items-center justify-center transition-colors ${(activeTool === 'MeasureLength' || activeTool === 'MeasureArea') ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'}`}
-                      >
-                          <i className={`fas ${(activeTool === 'MeasureArea') ? 'fa-ruler-vertical' : 'fa-ruler-combined'} text-lg`}></i>
-                      </button>
-                      
-                      {/* Sub-menu for measurements */}
-                      <div className={`pointer-events-auto absolute right-full top-0 mr-2 bg-white rounded-lg shadow-xl border border-neutral-300 p-1 flex flex-col gap-1 w-32 transition-all duration-200 ${showMeasureMenu ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-4 pointer-events-none'}`}>
-                          <button onClick={() => toggleTool('MeasureLength')} className={`px-2 py-1.5 text-xs rounded text-left flex items-center gap-2 ${activeTool === 'MeasureLength' ? 'bg-blue-50 text-blue-700 font-bold' : 'hover:bg-neutral-100 text-neutral-700'}`}>
-                              <i className="fas fa-ruler-combined w-4"></i> Distance
-                          </button>
-                          <button onClick={() => toggleTool('MeasureArea')} className={`px-2 py-1.5 text-xs rounded text-left flex items-center gap-2 ${activeTool === 'MeasureArea' ? 'bg-blue-50 text-blue-700 font-bold' : 'hover:bg-neutral-100 text-neutral-700'}`}>
-                              <i className="fas fa-ruler-vertical w-4"></i> Surface
-                          </button>
-                      </div>
-                  </div>
-
               </div>
 
-              {/* My Position Button */}
+              {/* My Position Button - Simplified & Moved */}
               <button 
                 onClick={() => mapComponentRef.current?.locateUser()}
-                className="absolute bottom-6 right-6 z-30 w-10 h-10 bg-white rounded-full shadow-lg border border-neutral-300 flex items-center justify-center text-neutral-700 hover:text-blue-600 hover:bg-neutral-50 transition-transform active:scale-95"
+                className="absolute bottom-2 right-2 z-30 w-8 h-8 bg-white/90 rounded shadow border border-neutral-300 flex items-center justify-center text-neutral-600 hover:text-blue-600 hover:bg-white transition-colors"
                 title="Ma position"
               >
-                  <i className="fas fa-crosshairs text-lg"></i>
+                  <i className="fas fa-crosshairs text-sm"></i>
               </button>
 
               <MapComponent 
@@ -646,7 +641,7 @@ const App: React.FC = () => {
               />
           </div>
 
-          {/* RIGHT PANEL: TABLE OF CONTENTS (Was Left) */}
+          {/* RIGHT PANEL: TABLE OF CONTENTS */}
           <div className={`${tocOpen ? 'w-64 md:w-72 translate-x-0' : 'w-0 translate-x-full opacity-0'} transition-all duration-300 bg-white border-l border-neutral-300 flex flex-col shrink-0 overflow-hidden absolute right-0 md:static z-20 h-full shadow-lg md:shadow-none order-last`}>
               <div className="bg-neutral-100 p-2 border-b border-neutral-300 font-bold text-xs text-neutral-700 flex justify-between items-center">
                   <span>Layers</span>

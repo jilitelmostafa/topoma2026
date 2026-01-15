@@ -81,6 +81,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     stroke: new Stroke({ color: '#ff0000', width: 3 }),
   });
 
+  // Style for COMPLETED measurements (Blue)
   const measureStyle = new Style({
     fill: new Fill({ color: 'rgba(255, 255, 255, 0.2)' }),
     stroke: new Stroke({ color: '#3b82f6', width: 2, lineDash: [10, 10] }),
@@ -421,14 +422,18 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         createHelpTooltip();
 
         const drawType = type === 'MeasureLength' ? 'LineString' : 'Polygon';
+        
+        // Style during DRAWING: Dark Yellow as requested (#d97706 or #b45309)
+        const drawingStyle = new Style({
+            fill: new Fill({ color: 'rgba(245, 158, 11, 0.2)' }), // Amber-500 transparent
+            stroke: new Stroke({ color: '#d97706', width: 3, lineDash: [10, 10] }), // Amber-600
+            image: new CircleStyle({ radius: 5, stroke: new Stroke({ color: '#d97706' }), fill: new Fill({ color: '#fbbf24' }) })
+        });
+
         const draw = new Draw({
             source: measureSourceRef.current,
             type: drawType,
-            style: new Style({
-                fill: new Fill({ color: 'rgba(255, 255, 255, 0.2)' }),
-                stroke: new Stroke({ color: 'rgba(0, 0, 0, 0.5)', lineDash: [10, 10], width: 2 }),
-                image: new CircleStyle({ radius: 5, stroke: new Stroke({ color: 'rgba(0, 0, 0, 0.7)' }), fill: new Fill({ color: 'rgba(255, 255, 255, 0.2)' }) }),
-            }),
+            style: drawingStyle,
         });
 
         draw.on('drawstart', (evt) => {
@@ -760,52 +765,25 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     map.on('pointermove', (evt) => {
         if (evt.dragging) return;
         const coords = toLonLat(evt.coordinate); // Get WGS84
-        // We can project here or in App.tsx. Since geoService has projectFromZone (Zone->WGS84) but we need WGS84->Zone,
-        // we can use proj4 directly here since it's defined in geoService.
         try {
             if (selectedZone && selectedZone !== 'EPSG:4326') {
-                 // Convert WGS84 [lng, lat] back to Zone. 
-                 // Since proj4 definitions are loaded in geoService (imported at top), we can use proj4 here.
                  const projected = proj4('EPSG:4326', selectedZone, coords);
                  if (onMouseMove) onMouseMove(projected[0].toFixed(2), projected[1].toFixed(2));
             } else {
                  if (onMouseMove) onMouseMove(coords[0].toFixed(6), coords[1].toFixed(6));
             }
         } catch(e) {
-            // Fallback
              if (onMouseMove) onMouseMove(coords[0].toFixed(2), coords[1].toFixed(2));
         }
     });
 
     mapRef.current = map;
     return () => map.setTarget(undefined);
-  }, []); // Run once on mount, but selectedZone updates will be handled by re-renders or refs? 
-  // Actually useEffect [] runs once. `selectedZone` inside the callback will be stale (initial value).
-  // Fix: Use a ref for selectedZone to access inside the event listener without re-creating map.
+  }, []); 
   
-  // Quick Fix for Stale selectedZone in pointermove
   const selectedZoneRef = useRef(selectedZone);
   useEffect(() => { selectedZoneRef.current = selectedZone; }, [selectedZone]);
   
-  useEffect(() => {
-     if (!mapRef.current) return;
-     // Update the listener to use the ref
-     const map = mapRef.current;
-     // We need to remove old listener if we were to re-bind, but map init is once.
-     // So we just rely on the mutable ref inside the existing listener logic?
-     // Actually, let's just add the listener logic here in a separate effect or use the ref in the init.
-     // Since map init is complex, let's keep it simple: 
-     // We modify the listener inside the init to use selectedZoneRef.current.
-  }, []); 
-
-  // Re-attach listener or use the ref pattern correctly in the initial useEffect
-  // Correcting the initial useEffect above:
-  /* 
-    map.on('pointermove', (evt) => {
-        // ... use selectedZoneRef.current
-    });
-  */
-
   return (
       <div ref={mapElement} className="w-full h-full bg-slate-50 relative">
           <div ref={popupRef} className="bg-white/95 backdrop-blur border border-slate-200 rounded-xl p-3 shadow-xl pointer-events-none transform translate-y-[-10px] min-w-[200px]">
