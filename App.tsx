@@ -300,27 +300,6 @@ const App: React.FC = () => {
              </div>
           </div>
 
-          {/* Drawing Tools */}
-          <div>
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-4 border-b border-white/5 pb-2">Outils de Sélection</label>
-            <div className="grid grid-cols-2 gap-3">
-              <button 
-                onClick={() => toggleTool('Rectangle')}
-                className={`p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 ${activeTool === 'Rectangle' ? 'bg-red-600 border-red-400 shadow-xl' : 'bg-slate-800/40 border-white/5 hover:bg-slate-800'}`}
-              >
-                <i className="fas fa-square-full text-xl"></i>
-                <span className="text-[11px] font-bold">Rectangle</span>
-              </button>
-              <button 
-                onClick={() => toggleTool('Polygon')}
-                className={`p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 ${activeTool === 'Polygon' ? 'bg-red-600 border-red-400 shadow-xl' : 'bg-slate-800/40 border-white/5 hover:bg-slate-800'}`}
-              >
-                <i className="fas fa-draw-polygon text-xl"></i>
-                <span className="text-[11px] font-bold">Polygone</span>
-              </button>
-            </div>
-          </div>
-
           {/* File Uploads (KML, SHP, DXF, Excel) */}
           <div className="space-y-3 pt-2">
             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Importation</label>
@@ -529,6 +508,47 @@ const App: React.FC = () => {
             setActiveTool(null);
           }} 
         />
+
+        {/* Floating Drawing Tools - Top Left */}
+        <div className="absolute left-4 top-4 flex flex-col gap-2 z-10">
+          <button 
+            onClick={() => toggleTool('Rectangle')}
+            className={`w-10 h-10 rounded-md flex items-center justify-center transition-all shadow-lg border relative group ${
+              activeTool === 'Rectangle' 
+                ? 'bg-indigo-600 border-indigo-400 text-white' 
+                : 'bg-slate-900/90 border-white/10 text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <img 
+              src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNGFkZTgwIiBzdHJva2Utd2lkdGg9IjIiPjxyZWN0IHg9IjMiIHk9IjMiIHdpZHRoPSIxOCIgaGVpZ2h0PSIxOCIgcng9IjIiIC8+PC9zdmc+" 
+              className="w-5 h-5" 
+              alt="Rectangle"
+            />
+            {/* Tooltip */}
+            <div className="absolute left-full ml-3 px-3 py-1.5 bg-slate-900 text-white text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-white/10 pointer-events-none shadow-xl">
+              Rectangle
+            </div>
+          </button>
+          
+          <button 
+            onClick={() => toggleTool('Polygon')}
+            className={`w-10 h-10 rounded-md flex items-center justify-center transition-all shadow-lg border relative group ${
+              activeTool === 'Polygon' 
+                ? 'bg-indigo-600 border-indigo-400 text-white' 
+                : 'bg-slate-900/90 border-white/10 text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <img 
+              src="https://tool-online.com/Images/Polygone.png" 
+              className="w-5 h-5 invert" 
+              alt="Polygone"
+            />
+             {/* Tooltip */}
+            <div className="absolute left-full ml-3 px-3 py-1.5 bg-slate-900 text-white text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-white/10 pointer-events-none shadow-xl">
+              Polygone
+            </div>
+          </button>
+        </div>
         
         {/* Indicators Overlay */}
         <div className="absolute bottom-8 left-8 bg-slate-900/90 backdrop-blur-2xl p-6 rounded-[32px] border border-white/10 pointer-events-none flex items-center gap-8 shadow-2xl">
