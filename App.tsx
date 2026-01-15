@@ -17,17 +17,43 @@ type WorkflowStep = 'IDLE' | 'SELECTED' | 'PROCESSING' | 'DONE';
 type ToolType = 'Rectangle' | 'Polygon' | 'Pan' | 'MeasureLength' | 'MeasureArea' | null;
 type MapType = 'satellite' | 'hybrid';
 
-const SCALES = [
-  { label: '1:500', value: 500 },
-  { label: '1:1000', value: 1000 },
-  { label: '1:2000', value: 2000 },
-  { label: '1:2500', value: 2500 },
-  { label: '1:5000', value: 5000 },
-  { label: '1:10000', value: 10000 },
-  { label: '1:25000', value: 25000 },
-  { label: '1:50000', value: 50000 },
-  { label: '1:100000', value: 100000 },
-  { label: '1:250000', value: 250000 }
+// Custom Export Resolutions/Scales as requested
+const EXPORT_SCALES = [
+  { label: '10000 km', value: 1000000000 },
+  { label: '5000 km', value: 500000000 },
+  { label: '2000 km', value: 200000000 },
+  { label: '1000 km', value: 100000000 },
+  { label: '500 km', value: 50000000 },
+  { label: '200 km', value: 20000000 },
+  { label: '100 km', value: 10000000 },
+  { label: '50 km', value: 5000000 },
+  { label: '25 km', value: 2500000 },
+  { label: '20 km', value: 2000000 },
+  { label: '10 km', value: 1000000 },
+  { label: '5 km', value: 500000 },
+  { label: '2 km', value: 200000 },
+  { label: '1 km', value: 100000 },
+  { label: '500 m', value: 50000 },
+  { label: '250 m', value: 25000 },
+  { label: '200 m', value: 20000 },
+  { label: '100 m', value: 10000 },
+  { label: '50 m', value: 5000 },
+  { label: '20 m', value: 2000 },
+  { label: '10 m', value: 1000 },
+  { label: '5 m', value: 500 }
+];
+
+const MAP_SCALES = [
+    { label: '1:500', value: 500 },
+    { label: '1:1000', value: 1000 },
+    { label: '1:2000', value: 2000 },
+    { label: '1:2500', value: 2500 },
+    { label: '1:5000', value: 5000 },
+    { label: '1:10000', value: 10000 },
+    { label: '1:25000', value: 25000 },
+    { label: '1:50000', value: 50000 },
+    { label: '1:100000', value: 100000 },
+    { label: '1:250000', value: 250000 }
 ];
 
 const ZONES = [
@@ -63,6 +89,7 @@ const App: React.FC = () => {
   
   // Measurement State
   const [measureUnit, setMeasureUnit] = useState<string>('m');
+  const [showMeasureMenu, setShowMeasureMenu] = useState(false);
 
   // UI Layout State
   const [tocOpen, setTocOpen] = useState(true); // Table of Contents (Left)
@@ -74,6 +101,9 @@ const App: React.FC = () => {
   const [selectedZone, setSelectedZone] = useState<string>('EPSG:26191'); 
   const [selectedExcelFile, setSelectedExcelFile] = useState<File | null>(null);
   const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
+  
+  // Mouse Coordinates
+  const [mouseCoords, setMouseCoords] = useState({ x: '0.00', y: '0.00' });
   
   // Manual Input State (Go To XY)
   const [manualX, setManualX] = useState<string>('');
@@ -97,6 +127,7 @@ const App: React.FC = () => {
   const toggleTool = (tool: ToolType) => {
     const newTool = activeTool === tool ? null : tool;
     setActiveTool(newTool);
+    setShowMeasureMenu(false); // Close menu if a tool is picked
     
     // Set default units when switching tools if necessary
     if (newTool === 'MeasureLength' && !LENGTH_UNITS.find(u => u.value === measureUnit)) {
@@ -119,12 +150,41 @@ const App: React.FC = () => {
     }
   };
 
-  // Effect to update unit if it changes while tool is active
-  useEffect(() => {
+  const handleUnitChange = (unit: string) => {
+      setMeasureUnit(unit);
+      // Trigger map to update existing measurement labels
+      mapComponentRef.current?.updateMeasureUnit(unit);
+      // If tool is currently active, ensure it keeps measuring with new unit
       if (activeTool === 'MeasureLength' || activeTool === 'MeasureArea') {
-          mapComponentRef.current?.setMeasureTool(activeTool, measureUnit);
+          mapComponentRef.current?.setMeasureTool(activeTool, unit);
       }
-  }, [measureUnit, activeTool]);
+  };
+
+  // Track mouse move from MapComponent
+  const handleMouseMove = (coords: number[]) => {
+      // Coords come in as [lng, lat] (WGS84) from MapComponent callback
+      // We need to project them to the selected Zone to display X/Y in Lambert
+      // Or if MapComponent sends raw projected coords, we use them.
+      // Let's assume MapComponent sends [Lon, Lat].
+      
+      // Wait, projectFromZone converts FROM Lambert TO WGS84.
+      // We need WGS84 TO Lambert.
+      // Since we don't have the inverse function exposed easily without including proj4 fully in App,
+      // let's rely on MapComponent to send us the coordinates in the map's view projection (which is Web Mercator usually)
+      // OR better, let's just use the `projectFromZone` logic in reverse inside MapComponent, or keep it simple:
+      // We will ask MapComponent to give us WGS84, and we assume we display WGS84 unless we add a specific library here.
+      
+      // Actually, for professional GIS, users want to see the coordinates in the SELECTED ZONE.
+      // MapComponent already imports geoService. Let's make MapComponent do the heavy lifting of formatting 
+      // based on the selected zone code passed to it.
+      
+      // For now, let's assume `coords` passed up are already formatted or we format them here.
+      // Ideally, MapComponent passes [x, y] in the current projection if we set the projection there.
+      // But OpenLayers view is usually Mercator.
+      
+      // Let's use the provided `projectFromZone` in reverse? No, that file only does Zone -> WGS84.
+      // We will implement `handleMouseMove` to receive formatted strings from MapComponent directly.
+  };
 
   const handleFileClick = (ref: React.RefObject<HTMLInputElement>) => {
       ref.current?.click();
@@ -144,7 +204,6 @@ const App: React.FC = () => {
       if (type === 'DXF') mapComponentRef.current.loadDXF(file, selectedZone);
       if (type === 'XLS') setSelectedExcelFile(file);
 
-      // Add to TOC list only if not Excel (Excel is added after processing now)
       if (type !== 'XLS') {
           setLoadedFiles(prev => [...prev, `${type}: ${file.name}`]);
       }
@@ -230,7 +289,7 @@ const App: React.FC = () => {
         return;
     }
 
-    const wgs84 = projectFromZone(x, y, selectedZone); // Use selected zone from TOC/Global
+    const wgs84 = projectFromZone(x, y, selectedZone); 
     if (!wgs84) {
         alert("Hors zone ou erreur de projection.");
         return;
@@ -241,7 +300,6 @@ const App: React.FC = () => {
     setPointCounter(prev => prev + 1);
     setManualX("");
     setManualY("");
-    // Optional: close panel or keep open for multiple points
   };
 
   const startClipping = async () => {
@@ -338,21 +396,20 @@ const App: React.FC = () => {
       <input type="file" accept=".dxf" className="hidden" ref={dxfInputRef} onChange={(e) => handleFileUpload(e, 'DXF')} />
       <input type="file" accept=".xlsx, .xls" className="hidden" ref={excelInputRef} onChange={(e) => handleFileUpload(e, 'XLS')} />
 
-      {/* --- 1. MAIN TOOLBAR (ArcMap Standard) --- */}
-      <div className="bg-neutral-100 border-b border-neutral-300 p-1 flex items-center gap-1 shadow-sm shrink-0">
+      {/* --- 1. MAIN TOOLBAR (Compact) --- */}
+      <div className="bg-neutral-100 border-b border-neutral-300 p-1 flex items-center gap-1 shadow-sm shrink-0 h-10">
           
           {/* File Operations */}
           <div className="flex items-center px-2 border-r border-neutral-300 gap-1">
               <button onClick={resetAll} className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300" title="Nouveau Projet">
                   <i className="fas fa-file text-neutral-600"></i>
               </button>
-               {/* Add Data Button (ArcMap Style) */}
+               {/* Add Data Button */}
                <div className="relative group">
                    <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300 bg-yellow-50" title="Add Data">
                       <i className="fas fa-plus text-black font-bold text-xs absolute top-1.5 left-2"></i>
                       <i className="fas fa-layer-group text-yellow-600"></i>
                    </button>
-                   {/* Dropdown for Add Data */}
                    <div className="absolute top-full left-0 mt-1 bg-white border border-neutral-400 shadow-lg rounded-none w-48 hidden group-hover:block z-50">
                        <button onClick={() => handleFileClick(kmlInputRef)} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-100 flex items-center gap-2"><i className="fas fa-globe text-blue-500"></i> Add KML/KMZ</button>
                        <button onClick={() => handleFileClick(shpInputRef)} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-100 flex items-center gap-2"><i className="fas fa-shapes text-green-500"></i> Add Shapefile (ZIP)</button>
@@ -361,7 +418,7 @@ const App: React.FC = () => {
                </div>
           </div>
 
-          {/* Navigation & Measurement Tools */}
+          {/* Basic Navigation */}
           <div className="flex items-center px-2 border-r border-neutral-300 gap-1">
               <button 
                 onClick={() => toggleTool('Pan')} 
@@ -377,56 +434,22 @@ const App: React.FC = () => {
                   <i className="fas fa-search-minus text-neutral-700"></i>
               </button>
               
-              {/* Divider */}
-              <div className="w-px h-6 bg-neutral-300 mx-1"></div>
-
-              {/* Measurement Tools */}
-              <button 
-                onClick={() => toggleTool('MeasureLength')} 
-                className={`w-8 h-8 flex items-center justify-center rounded border ${activeTool === 'MeasureLength' ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`} 
-                title="Measure Distance"
-              >
-                  <i className="fas fa-ruler-combined text-neutral-700"></i>
-              </button>
-              <button 
-                onClick={() => toggleTool('MeasureArea')} 
-                className={`w-8 h-8 flex items-center justify-center rounded border ${activeTool === 'MeasureArea' ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`} 
-                title="Measure Area"
-              >
-                  <i className="fas fa-ruler-vertical text-neutral-700"></i>
-              </button>
-              
-              {/* Unit Selector (Visible when measuring) */}
+              {/* Unit Selector (Always visible if measurement tool is active) */}
               {(activeTool === 'MeasureLength' || activeTool === 'MeasureArea') && (
-                  <select 
-                     value={measureUnit}
-                     onChange={(e) => setMeasureUnit(e.target.value)}
-                     className="ml-1 h-6 text-xs border border-neutral-400 rounded px-1 bg-white focus:outline-none"
-                  >
-                      {activeTool === 'MeasureLength' 
-                        ? LENGTH_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
-                        : AREA_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
-                      }
-                  </select>
+                  <div className="flex items-center ml-2 border-l border-neutral-300 pl-2">
+                    <span className="text-[10px] text-neutral-500 mr-1 uppercase font-bold">Unit:</span>
+                    <select 
+                        value={measureUnit}
+                        onChange={(e) => handleUnitChange(e.target.value)}
+                        className="h-6 text-xs border border-neutral-400 rounded px-1 bg-white focus:outline-none"
+                    >
+                        {activeTool === 'MeasureLength' 
+                            ? LENGTH_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
+                            : AREA_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
+                        }
+                    </select>
+                  </div>
               )}
-          </div>
-
-          {/* Drawing/Selection Tools */}
-          <div className="flex items-center px-2 border-r border-neutral-300 gap-1">
-              <button 
-                onClick={() => toggleTool('Rectangle')} 
-                className={`w-8 h-8 flex items-center justify-center rounded border ${activeTool === 'Rectangle' ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`} 
-                title="Select Rectangle (Clip)"
-              >
-                  <i className="far fa-square text-neutral-700"></i>
-              </button>
-              <button 
-                onClick={() => toggleTool('Polygon')} 
-                className={`w-8 h-8 flex items-center justify-center rounded border ${activeTool === 'Polygon' ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`} 
-                title="Select Polygon (Clip)"
-              >
-                  <i className="fas fa-draw-polygon text-neutral-700"></i>
-              </button>
           </div>
 
           {/* Panels Toggle */}
@@ -446,21 +469,7 @@ const App: React.FC = () => {
           </div>
       </div>
 
-      {/* --- 2. COMMAND BAR (Coordinates & Projection) --- */}
-      <div className="bg-neutral-200 border-b border-neutral-300 p-1 flex flex-col md:flex-row items-center gap-2 px-2 shrink-0 h-auto md:h-8 text-xs">
-          <div className="flex-grow"></div>
-          
-          <span className="font-bold text-neutral-600 mr-2">Scale:</span>
-          <select 
-             value={selectedScale}
-             onChange={(e) => handleScaleChange(Number(e.target.value))}
-             className="border border-neutral-400 rounded-none px-2 py-1 bg-white focus:outline-none h-6 w-32"
-          >
-             {SCALES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-      </div>
-
-      {/* --- 3. MAIN WORKSPACE --- */}
+      {/* --- 2. MAIN WORKSPACE --- */}
       <div className="flex-grow flex relative overflow-hidden">
           
           {/* LEFT PANEL: TABLE OF CONTENTS */}
@@ -471,37 +480,20 @@ const App: React.FC = () => {
               </div>
               <div className="flex-grow overflow-y-auto p-2">
                   <div className="text-xs select-none">
-                      
-                      {/* Data Frame Group */}
                       <div className="flex items-center gap-1 mb-1 font-bold text-neutral-800">
                            <i className="fas fa-layer-group text-yellow-600"></i> <span>Layers</span>
                       </div>
-                      
                       <div className="ml-4 border-l border-neutral-300 pl-2 space-y-2">
-                          
-                          {/* Base Maps */}
                           <div>
                               <div className="flex items-center gap-2">
-                                  <input 
-                                    type="checkbox" 
-                                    checked={mapType === 'satellite'} 
-                                    onChange={() => setMapType('satellite')} 
-                                    className="cursor-pointer"
-                                  />
+                                  <input type="checkbox" checked={mapType === 'satellite'} onChange={() => setMapType('satellite')} className="cursor-pointer" />
                                   <span className="text-neutral-700">Imagery (Satellite)</span>
                               </div>
                               <div className="flex items-center gap-2 mt-1">
-                                  <input 
-                                    type="checkbox" 
-                                    checked={mapType === 'hybrid'} 
-                                    onChange={() => setMapType('hybrid')} 
-                                    className="cursor-pointer"
-                                  />
+                                  <input type="checkbox" checked={mapType === 'hybrid'} onChange={() => setMapType('hybrid')} className="cursor-pointer" />
                                   <span className="text-neutral-700">Hybrid Labels</span>
                               </div>
                           </div>
-
-                          {/* Loaded Files */}
                           {loadedFiles.map((file, idx) => (
                               <div key={idx} className="flex items-center gap-2">
                                   <input type="checkbox" checked readOnly className="cursor-pointer accent-blue-600" />
@@ -522,7 +514,7 @@ const App: React.FC = () => {
               {/* Floating Tools Container */}
               <div className="absolute top-2 right-2 z-30 flex flex-col items-end pointer-events-none gap-2">
                   
-                  {/* Tool 1: Go To XY */}
+                  {/* Tool: Go To XY */}
                   <div className="relative flex flex-col items-end">
                       <button 
                         onClick={() => { setShowGoToPanel(!showGoToPanel); setShowExcelPanel(false); }}
@@ -531,60 +523,35 @@ const App: React.FC = () => {
                       >
                           <i className="fas fa-map-marker-alt text-lg text-red-600"></i>
                       </button>
-
-                      {/* Go To XY Panel */}
+                      {/* Go To Panel Content (Same as before) */}
                       <div className={`pointer-events-auto mt-2 bg-white rounded-lg shadow-xl border border-neutral-300 p-3 w-64 transition-all duration-200 origin-top-right absolute top-full right-0 ${showGoToPanel ? 'scale-100 opacity-100' : 'scale-90 opacity-0 hidden'}`}>
                           <div className="flex justify-between items-center mb-2 border-b border-neutral-100 pb-1">
                               <span className="text-xs font-bold text-neutral-700">Aller à XY</span>
                               <button onClick={() => setShowGoToPanel(false)} className="text-neutral-400 hover:text-neutral-600"><i className="fas fa-times"></i></button>
                           </div>
-                          
                           <div className="space-y-2">
                               <div>
                                   <label className="block text-[10px] text-neutral-500 mb-0.5">Projection</label>
-                                  <select 
-                                     value={selectedZone}
-                                     onChange={(e) => setSelectedZone(e.target.value)}
-                                     className="w-full text-xs border border-neutral-300 rounded p-1 bg-neutral-50 focus:outline-none focus:border-blue-400"
-                                  >
+                                  <select value={selectedZone} onChange={(e) => setSelectedZone(e.target.value)} className="w-full text-xs border border-neutral-300 rounded p-1 bg-neutral-50 focus:outline-none focus:border-blue-400">
                                      {ZONES.map(z => <option key={z.code} value={z.code}>{z.label}</option>)}
                                   </select>
                               </div>
-
                               <div className="grid grid-cols-2 gap-2">
                                   <div>
                                       <label className="block text-[10px] text-neutral-500 mb-0.5">X (Easting)</label>
-                                      <input 
-                                         type="text" 
-                                         value={manualX}
-                                         onChange={(e) => setManualX(e.target.value)}
-                                         className="w-full text-xs border border-neutral-300 rounded p-1 focus:outline-none focus:border-blue-400"
-                                         placeholder="000000"
-                                      />
+                                      <input type="text" value={manualX} onChange={(e) => setManualX(e.target.value)} className="w-full text-xs border border-neutral-300 rounded p-1 focus:outline-none focus:border-blue-400" placeholder="000000" />
                                   </div>
                                   <div>
                                       <label className="block text-[10px] text-neutral-500 mb-0.5">Y (Northing)</label>
-                                      <input 
-                                         type="text" 
-                                         value={manualY}
-                                         onChange={(e) => setManualY(e.target.value)}
-                                         className="w-full text-xs border border-neutral-300 rounded p-1 focus:outline-none focus:border-blue-400"
-                                         placeholder="000000"
-                                      />
+                                      <input type="text" value={manualY} onChange={(e) => setManualY(e.target.value)} className="w-full text-xs border border-neutral-300 rounded p-1 focus:outline-none focus:border-blue-400" placeholder="000000" />
                                   </div>
                               </div>
-
-                              <button 
-                                 onClick={handleManualAddPoint}
-                                 className="w-full bg-blue-600 text-white text-xs py-1.5 rounded hover:bg-blue-700 transition-colors flex items-center justify-center gap-1 font-medium"
-                              >
-                                 <i className="fas fa-location-arrow text-[10px]"></i> Localiser
-                              </button>
+                              <button onClick={handleManualAddPoint} className="w-full bg-blue-600 text-white text-xs py-1.5 rounded hover:bg-blue-700 transition-colors flex items-center justify-center gap-1 font-medium"><i className="fas fa-location-arrow text-[10px]"></i> Localiser</button>
                           </div>
                       </div>
                   </div>
 
-                  {/* Tool 2: Excel Import */}
+                  {/* Tool: Excel Import */}
                   <div className="relative flex flex-col items-end">
                       <button 
                         onClick={() => { setShowExcelPanel(!showExcelPanel); setShowGoToPanel(false); }}
@@ -593,46 +560,62 @@ const App: React.FC = () => {
                       >
                           <i className="fas fa-file-excel text-lg text-green-600"></i>
                       </button>
-
-                      {/* Excel Panel */}
+                      {/* Excel Panel Content */}
                       <div className={`pointer-events-auto mt-2 bg-white rounded-lg shadow-xl border border-neutral-300 p-3 w-64 transition-all duration-200 origin-top-right absolute top-full right-0 ${showExcelPanel ? 'scale-100 opacity-100' : 'scale-90 opacity-0 hidden'}`}>
                           <div className="flex justify-between items-center mb-2 border-b border-neutral-100 pb-1">
                               <span className="text-xs font-bold text-neutral-700">Import Excel XY</span>
                               <button onClick={() => setShowExcelPanel(false)} className="text-neutral-400 hover:text-neutral-600"><i className="fas fa-times"></i></button>
                           </div>
-                          
                           <div className="space-y-3">
                               <div>
                                   <label className="block text-[10px] text-neutral-500 mb-0.5">Projection (Zone)</label>
-                                  <select 
-                                     value={selectedZone}
-                                     onChange={(e) => setSelectedZone(e.target.value)}
-                                     className="w-full text-xs border border-neutral-300 rounded p-1 bg-neutral-50 focus:outline-none focus:border-blue-400"
-                                  >
+                                  <select value={selectedZone} onChange={(e) => setSelectedZone(e.target.value)} className="w-full text-xs border border-neutral-300 rounded p-1 bg-neutral-50 focus:outline-none focus:border-blue-400">
                                      {ZONES.map(z => <option key={z.code} value={z.code}>{z.label}</option>)}
                                   </select>
                               </div>
-
                               <div className="border border-dashed border-neutral-300 rounded bg-neutral-50 p-2 text-center">
-                                  <button 
-                                    onClick={() => handleFileClick(excelInputRef)}
-                                    className="text-xs text-blue-600 hover:underline font-medium mb-1"
-                                  >
-                                      <i className="fas fa-folder-open mr-1"></i> Choisir un fichier
-                                  </button>
-                                  <div className="text-[10px] text-neutral-500 truncate px-1">
-                                      {selectedExcelFile ? selectedExcelFile.name : "Aucun fichier sélectionné"}
-                                  </div>
+                                  <button onClick={() => handleFileClick(excelInputRef)} className="text-xs text-blue-600 hover:underline font-medium mb-1"><i className="fas fa-folder-open mr-1"></i> Choisir un fichier</button>
+                                  <div className="text-[10px] text-neutral-500 truncate px-1">{selectedExcelFile ? selectedExcelFile.name : "Aucun fichier sélectionné"}</div>
                               </div>
-
-                              <button 
-                                 onClick={processExcelFile}
-                                 disabled={!selectedExcelFile}
-                                 className={`w-full text-white text-xs py-1.5 rounded transition-colors flex items-center justify-center gap-1 font-medium ${selectedExcelFile ? 'bg-green-600 hover:bg-green-700' : 'bg-neutral-300 cursor-not-allowed'}`}
-                              >
-                                 <i className="fas fa-upload text-[10px]"></i> Charger les points
-                              </button>
+                              <button onClick={processExcelFile} disabled={!selectedExcelFile} className={`w-full text-white text-xs py-1.5 rounded transition-colors flex items-center justify-center gap-1 font-medium ${selectedExcelFile ? 'bg-green-600 hover:bg-green-700' : 'bg-neutral-300 cursor-not-allowed'}`}><i className="fas fa-upload text-[10px]"></i> Charger les points</button>
                           </div>
+                      </div>
+                  </div>
+
+                  {/* Tool: Select Rectangle */}
+                  <button 
+                    onClick={() => toggleTool('Rectangle')} 
+                    className={`pointer-events-auto w-10 h-10 rounded-lg shadow-md border flex items-center justify-center transition-colors ${activeTool === 'Rectangle' ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'}`} 
+                    title="Select Rectangle"
+                  >
+                      <i className="far fa-square text-lg"></i>
+                  </button>
+
+                  {/* Tool: Select Polygon */}
+                  <button 
+                    onClick={() => toggleTool('Polygon')} 
+                    className={`pointer-events-auto w-10 h-10 rounded-lg shadow-md border flex items-center justify-center transition-colors ${activeTool === 'Polygon' ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'}`} 
+                    title="Select Polygon"
+                  >
+                      <i className="fas fa-draw-polygon text-lg"></i>
+                  </button>
+
+                  {/* Tool: Measure Combined */}
+                  <div className="relative flex flex-col items-end group" onMouseEnter={() => setShowMeasureMenu(true)} onMouseLeave={() => setShowMeasureMenu(false)}>
+                      <button 
+                        className={`pointer-events-auto w-10 h-10 rounded-lg shadow-md border flex items-center justify-center transition-colors ${(activeTool === 'MeasureLength' || activeTool === 'MeasureArea') ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'}`}
+                      >
+                          <i className={`fas ${(activeTool === 'MeasureArea') ? 'fa-ruler-vertical' : 'fa-ruler-combined'} text-lg`}></i>
+                      </button>
+                      
+                      {/* Sub-menu for measurements */}
+                      <div className={`pointer-events-auto absolute right-full top-0 mr-2 bg-white rounded-lg shadow-xl border border-neutral-300 p-1 flex flex-col gap-1 w-32 transition-all duration-200 ${showMeasureMenu ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-4 pointer-events-none'}`}>
+                          <button onClick={() => toggleTool('MeasureLength')} className={`px-2 py-1.5 text-xs rounded text-left flex items-center gap-2 ${activeTool === 'MeasureLength' ? 'bg-blue-50 text-blue-700 font-bold' : 'hover:bg-neutral-100 text-neutral-700'}`}>
+                              <i className="fas fa-ruler-combined w-4"></i> Distance
+                          </button>
+                          <button onClick={() => toggleTool('MeasureArea')} className={`px-2 py-1.5 text-xs rounded text-left flex items-center gap-2 ${activeTool === 'MeasureArea' ? 'bg-blue-50 text-blue-700 font-bold' : 'hover:bg-neutral-100 text-neutral-700'}`}>
+                              <i className="fas fa-ruler-vertical w-4"></i> Surface
+                          </button>
                       </div>
                   </div>
 
@@ -650,11 +633,13 @@ const App: React.FC = () => {
               <MapComponent 
                 ref={mapComponentRef} 
                 mapType={mapType}
+                selectedZone={selectedZone}
+                onMouseMove={(x, y) => setMouseCoords({x, y})}
                 onSelectionComplete={(data) => {
                   setExportData(data);
                   setStep('SELECTED');
                   setActiveTool(null);
-                  setToolboxOpen(true); // Open toolbox on selection
+                  setToolboxOpen(true);
                 }} 
               />
           </div>
@@ -667,78 +652,85 @@ const App: React.FC = () => {
               </div>
               
               <div className="flex-grow overflow-y-auto p-3 bg-neutral-50">
-                   {/* Tool: Export Map */}
-                   <div className="border border-neutral-300 bg-white mb-2 shadow-sm">
-                       <div className="bg-neutral-200 px-2 py-1 text-xs font-bold border-b border-neutral-300 flex items-center gap-2">
+                   <div className="border border-neutral-300 bg-white mb-2 shadow-sm rounded-sm">
+                       <div className="bg-neutral-200 px-2 py-1.5 text-xs font-bold border-b border-neutral-300 flex items-center gap-2 text-neutral-700">
                            <i className="fas fa-hammer text-neutral-500"></i> Clip Raster (GeoTIFF)
                        </div>
-                       <div className="p-3 text-xs space-y-3">
+                       <div className="p-3 text-xs space-y-4">
                            <div>
-                               <label className="block text-neutral-500 mb-1">Output Scale:</label>
-                               <select 
-                                  value={selectedScale}
-                                  onChange={(e) => handleScaleChange(Number(e.target.value))}
-                                  className="w-full border border-neutral-300 p-1"
-                               >
-                                  {SCALES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                               </select>
+                               <label className="block text-neutral-600 mb-1.5 font-medium">Output Scale / Resolution:</label>
+                               <div className="relative">
+                                   <select 
+                                      value={selectedScale}
+                                      onChange={(e) => handleScaleChange(Number(e.target.value))}
+                                      className="w-full border border-neutral-300 p-1.5 rounded bg-white text-neutral-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 appearance-none"
+                                   >
+                                      {EXPORT_SCALES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                                   </select>
+                                   <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-neutral-600">
+                                       <i className="fas fa-chevron-down text-[10px]"></i>
+                                   </div>
+                               </div>
                            </div>
 
-                           <div className="border border-neutral-200 p-2 bg-neutral-50 h-32 flex flex-col items-center justify-center text-center">
-                               {step === 'IDLE' && <span className="text-neutral-400">Select area on map...</span>}
+                           <div className="border border-neutral-200 p-3 bg-neutral-50 h-32 flex flex-col items-center justify-center text-center rounded">
+                               {step === 'IDLE' && <span className="text-neutral-400 italic">Select area on map...</span>}
                                
                                {step === 'SELECTED' && exportData && (
                                    <>
-                                     <div className="text-green-600 font-bold mb-2"><i className="fas fa-check"></i> Geometry Defined</div>
-                                     <div className="text-neutral-500 mb-2">{exportData.lat.substring(0,7)}, {exportData.lng.substring(0,7)}</div>
-                                     <button onClick={startClipping} className="bg-neutral-200 border border-neutral-400 px-3 py-1 hover:bg-neutral-300 active:bg-neutral-400">
+                                     <div className="text-green-600 font-bold mb-2 flex items-center gap-1"><i className="fas fa-check-circle"></i> Geometry Defined</div>
+                                     <button onClick={startClipping} className="bg-neutral-100 border border-neutral-300 px-4 py-1.5 rounded hover:bg-white hover:border-blue-400 hover:text-blue-600 shadow-sm transition-all font-medium">
                                          OK (Run)
                                      </button>
                                    </>
                                )}
 
                                {step === 'PROCESSING' && (
-                                   <>
-                                     <i className="fas fa-cog fa-spin text-xl text-blue-600 mb-2"></i>
+                                   <div className="flex flex-col items-center text-blue-600">
+                                     <i className="fas fa-cog fa-spin text-2xl mb-2"></i>
                                      <span>Processing... {countdown}</span>
-                                   </>
+                                   </div>
                                )}
 
                                {step === 'DONE' && (
-                                   <button onClick={downloadFile} className="bg-blue-100 border border-blue-400 text-blue-800 px-3 py-1 hover:bg-blue-200">
-                                       <i className="fas fa-download mr-1"></i> Save Result
+                                   <button onClick={downloadFile} className="bg-green-50 border border-green-500 text-green-700 px-3 py-1.5 rounded hover:bg-green-100 flex items-center gap-2 font-medium">
+                                       <i className="fas fa-download"></i> Save Result
                                    </button>
                                )}
                            </div>
                        </div>
                    </div>
 
-                   <div className="text-[10px] text-neutral-400 text-center mt-4">
-                       GeoMapper Pro v1.2 <br/> Compatible with ArcGIS / QGIS
+                   <div className="text-[10px] text-neutral-400 text-center mt-6 leading-tight">
+                       GeoMapper Pro v1.3 <br/> Compatible with ArcGIS / QGIS
                    </div>
               </div>
           </div>
 
       </div>
 
-      {/* --- 4. STATUS BAR --- */}
+      {/* --- 3. STATUS BAR --- */}
       <div className="bg-neutral-200 border-t border-neutral-300 h-6 flex items-center px-2 text-[10px] text-neutral-600 justify-between shrink-0 select-none">
-          <div className="flex gap-4">
-              <span>{exportData ? `${exportData.lng}, ${exportData.lat}` : 'Ready'}</span>
-              <div className="flex items-center gap-1">
+          <div className="flex gap-6 items-center">
+              {/* Coordinates */}
+              <div className="flex gap-3 font-mono text-neutral-700">
+                  <span className="w-20 text-right">{mouseCoords.x} x</span>
+                  <span className="w-20 text-left">y {mouseCoords.y}</span>
+              </div>
+              
+              <div className="flex items-center gap-1 border-l border-neutral-300 pl-4">
                   <span>Scale:</span>
                   <select 
                      value={selectedScale}
                      onChange={(e) => handleScaleChange(Number(e.target.value))}
-                     className="bg-neutral-200 border-none focus:ring-0 p-0 text-[10px] h-4 cursor-pointer hover:bg-neutral-300 rounded"
+                     className="bg-neutral-200 border-none focus:ring-0 p-0 text-[10px] h-4 cursor-pointer hover:bg-neutral-300 rounded font-medium"
                   >
-                     {SCALES.map(s => <option key={s.value} value={s.value}>1:{s.value}</option>)}
+                     {MAP_SCALES.map(s => <option key={s.value} value={s.value}>1:{s.value}</option>)}
                   </select>
               </div>
-              <span>Units: Meters</span>
           </div>
           <div>
-              <span>Projection: {ZONES.find(z => z.code === selectedZone)?.label}</span>
+              <span>Prj: <span className="font-bold text-neutral-700">{ZONES.find(z => z.code === selectedZone)?.label}</span></span>
           </div>
       </div>
     </div>

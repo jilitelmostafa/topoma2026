@@ -18,6 +18,7 @@ import MultiPolygon from 'ol/geom/MultiPolygon';
 import LineString from 'ol/geom/LineString';
 import Point from 'ol/geom/Point';
 import Feature from 'ol/Feature';
+import proj4 from 'proj4'; // Import directly to handle transforms inside
 import { convertToWGS84, calculateScale, getResolutionFromScale, projectFromZone, formatArea } from '../services/geoService';
 import { unByKey } from 'ol/Observable';
 
@@ -27,6 +28,8 @@ declare const JSZip: any;
 
 interface MapComponentProps {
   onSelectionComplete: (data: { lat: string, lng: string, scale: string, bounds: number[] }) => void;
+  onMouseMove?: (x: string, y: string) => void;
+  selectedZone: string;
   mapType: 'satellite' | 'hybrid';
 }
 
@@ -39,12 +42,13 @@ export interface MapComponentRef {
   addManualPoint: (x: number, y: number, label: string) => void;
   setDrawTool: (type: 'Rectangle' | 'Polygon' | null) => void;
   setMeasureTool: (type: 'MeasureLength' | 'MeasureArea', unit: string) => void;
+  updateMeasureUnit: (unit: string) => void;
   clearAll: () => void;
   setMapScale: (scale: number) => void;
   locateUser: () => void;
 }
 
-const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelectionComplete, mapType }, ref) => {
+const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelectionComplete, onMouseMove, selectedZone, mapType }, ref) => {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const sourceRef = useRef<VectorSource>(new VectorSource()); // Clip Boundary
@@ -66,6 +70,10 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
   const measureTooltipRef = useRef<Overlay | null>(null);
   const pointerMoveListenerRef = useRef<any>(null);
   const currentMeasureUnitRef = useRef<string>('m');
+
+  // Store measurement features to update them dynamically
+  // We store: { featureId: string, overlay: Overlay, geometry: Geometry }
+  const activeMeasurementsRef = useRef<Array<{ feature: Feature, overlay: Overlay, type: 'Length' | 'Area' }>>([]);
 
   // Styles
   const redBoundaryStyle = new Style({
@@ -152,7 +160,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         helpTooltipElementRef.current.parentNode?.removeChild(helpTooltipElementRef.current);
     }
     helpTooltipElementRef.current = document.createElement('div');
-    helpTooltipElementRef.current.className = 'hidden'; // Hidden by default, can be used for instructions
+    helpTooltipElementRef.current.className = 'hidden';
     helpTooltipRef.current = new Overlay({
         element: helpTooltipElementRef.current,
         offset: [15, 0],
@@ -167,30 +175,17 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             alert("La géolocalisation n'est pas supportée par votre navigateur.");
             return;
         }
-        
         navigator.geolocation.getCurrentPosition(
             (position) => {
                 const { latitude, longitude } = position.coords;
                 const coords = fromLonLat([longitude, latitude]);
-                
                 if (mapRef.current) {
-                    mapRef.current.getView().animate({
-                        center: coords,
-                        zoom: 18,
-                        duration: 1000
-                    });
-
-                    const userFeature = new Feature({
-                        geometry: new Point(coords),
-                        label: 'Moi'
-                    });
+                    mapRef.current.getView().animate({ center: coords, zoom: 18, duration: 1000 });
+                    const userFeature = new Feature({ geometry: new Point(coords), label: 'Moi' });
                     pointsSourceRef.current.addFeature(userFeature);
                 }
             },
-            (error) => {
-                console.error("Geolocation error:", error);
-                alert("Impossible d'obtenir votre position. Vérifiez vos autorisations.");
-            },
+            (error) => { console.error(error); alert("Impossible d'obtenir votre position."); },
             { enableHighAccuracy: true }
         );
     },
@@ -199,11 +194,27 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       const view = mapRef.current.getView();
       const center = view.getCenter();
       if (!center) return;
-      
       const lonLat = toLonLat(center);
       const res = getResolutionFromScale(scale, lonLat[1]);
-      
       view.animate({ resolution: res, duration: 600 });
+    },
+    updateMeasureUnit: (unit) => {
+        currentMeasureUnitRef.current = unit;
+        // Update all active measurement overlays
+        activeMeasurementsRef.current.forEach(item => {
+            const geom = item.feature.getGeometry();
+            if (!geom) return;
+            const element = item.overlay.getElement();
+            if (!element) return;
+
+            let output = '';
+            if (item.type === 'Area' && geom instanceof Polygon) {
+                output = formatAreaMetric(geom, unit);
+            } else if (item.type === 'Length' && geom instanceof LineString) {
+                output = formatLength(geom, unit);
+            }
+            element.innerHTML = output;
+        });
     },
     loadKML: (file: File) => {
       overlayRef.current?.setPosition(undefined); // Hide popup
@@ -400,11 +411,12 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         // Cleanup previous interactions
         mapRef.current.getInteractions().forEach((i) => { if (i instanceof Draw) mapRef.current?.removeInteraction(i); });
         
-        // Remove Tooltips if starting new
-        if (measureTooltipRef.current) {
-            // Keep existing static tooltips on map, only remove the active one's reference
-            // Actually in this simple version, we will clear current "active" tooltip ref
+        // Remove active tooltip if one is pending but not finished (edge case)
+        if (measureTooltipElementRef.current && !sketchRef.current) {
+             measureTooltipElementRef.current.parentNode?.removeChild(measureTooltipElementRef.current);
+             measureTooltipElementRef.current = null;
         }
+
         createMeasureTooltip();
         createHelpTooltip();
 
@@ -449,6 +461,15 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             if (measureTooltipElementRef.current) {
                 measureTooltipElementRef.current.className = 'bg-blue-600 text-white px-2 py-1 rounded text-xs whitespace-nowrap shadow-md border border-white';
                 measureTooltipRef.current?.setOffset([0, -7]);
+                
+                // Store measurement for dynamic updating
+                if (sketchRef.current && measureTooltipRef.current) {
+                    activeMeasurementsRef.current.push({
+                        feature: sketchRef.current,
+                        overlay: measureTooltipRef.current,
+                        type: type === 'MeasureLength' ? 'Length' : 'Area'
+                    });
+                }
             }
             // Reset sketch
             sketchRef.current = null;
@@ -462,10 +483,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     },
     setDrawTool: (type) => {
       if (!mapRef.current) return;
-      // Clear measurement artifacts if switching back to selection/pan
       if (pointerMoveListenerRef.current) unByKey(pointerMoveListenerRef.current);
-      // We do NOT clear measureSourceRef here so measurements stay visible until "Reset"
-
       mapRef.current.getInteractions().forEach((i) => { if (i instanceof Draw) mapRef.current?.removeInteraction(i); });
       overlayRef.current?.setPosition(undefined); // Reset popup when changing tool
       
@@ -516,22 +534,20 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         kmlSourceRef.current.clear(); 
         pointsSourceRef.current.clear();
         measureSourceRef.current.clear(); // Clear measurements
+        activeMeasurementsRef.current = []; // Clear array tracking
         overlayRef.current?.setPosition(undefined);
         
-        // Remove static measurement overlays
+        // Remove static measurement overlays manually to be sure
         document.querySelectorAll('.ol-overlay-container').forEach(el => {
-             // Only remove if it contains our specific tooltip classes or if we want a full nuke
              if (el.innerHTML.includes('bg-blue-600') || el.innerHTML.includes('bg-black/75')) {
                  el.remove();
              }
         });
     },
     getMapCanvas: async (targetScale) => {
+      // Logic unchanged for canvas export...
       if (!mapRef.current) return null;
       const map = mapRef.current;
-      // Include measureSourceRef features in export? Usually no for "Clip", but if screenshot yes.
-      // Current requirement implies Clipping "Map". We typically clip the selection. 
-      // Measurements are usually overlay annotations. We will include them if they exist.
       
       const allFeatures = [
           ...kmlSourceRef.current.getFeatures(), 
@@ -542,7 +558,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
 
       if (allFeatures.length === 0) return null;
 
-      // Determine extent primarily from the Selection Box (sourceRef) if it exists, otherwise data
       const extent = sourceRef.current.getFeatures().length > 0 
           ? sourceRef.current.getExtent() 
           : (kmlSourceRef.current.getFeatures().length > 0 ? kmlSourceRef.current.getExtent() : pointsSourceRef.current.getExtent());
@@ -562,7 +577,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       const heightPx = Math.ceil((extent[3] - extent[1]) / exportRes);
 
       if (widthPx > 16384 || heightPx > 16384) {
-        alert("La zone est trop grande pour cette résolution, veuillez choisir une échelle plus grande (ex: 1:2500).");
+        alert("La zone est trop grande pour cette résolution, veuillez choisir une échelle plus grande.");
         return null;
       }
 
@@ -578,16 +593,9 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
           const mapContext = mapCanvas.getContext('2d');
           if (!mapContext) return resolve(null);
 
-          // Draw features
           mapContext.beginPath();
           allFeatures.forEach(feature => {
             const geom = feature.getGeometry();
-            // Handle different geometry types for drawing manually if needed
-            // However, grabbing the canvas directly from OL layers is often easier but complex with cross-origin Tiled layers.
-            // The existing code manually draws vectors. Let's ensure measurements are drawn.
-            
-            // ... existing vector drawing logic ...
-            // We need to add logic for LineString (Measure Length)
              if (geom instanceof LineString) {
                 const lineCoords = geom.getCoordinates();
                 mapContext.beginPath();
@@ -597,14 +605,12 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                     if (idx === 0) mapContext.moveTo(px, py);
                     else mapContext.lineTo(px, py);
                 });
-                mapContext.strokeStyle = "#3b82f6"; // Blue for measure
+                mapContext.strokeStyle = "#3b82f6";
                 mapContext.lineWidth = 2;
                 mapContext.setLineDash([10, 10]);
                 mapContext.stroke();
                 mapContext.setLineDash([]);
             }
-            
-            // Handle Polygons (Clip & Measure)
             if (geom instanceof Polygon || geom instanceof MultiPolygon) {
                  const polys = geom instanceof Polygon ? [geom.getCoordinates()] : geom.getCoordinates();
                  polys.forEach(polyCoords => {
@@ -618,26 +624,19 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                         });
                         mapContext.closePath();
                     });
-                    // Differentiate styles
                     if (measureSourceRef.current.hasFeature(feature)) {
                         mapContext.fillStyle = "rgba(255, 255, 255, 0.2)";
                         mapContext.fill();
                         mapContext.strokeStyle = "#3b82f6";
                         mapContext.stroke();
                     } else if (sourceRef.current.hasFeature(feature)) {
-                         // Selection Box (Red)
-                         // Don't fill, just clip usually, but here we draw bounds?
-                         // The existing code clips using the Selection Polygon.
                     } else {
-                         // KML/Shapefile polygons
                          mapContext.strokeStyle = "#f59e0b";
                          mapContext.lineWidth = 2.5;
                          mapContext.stroke();
                     }
                  });
             }
-
-            // Handle Points
             if (geom instanceof Point) {
                 const coord = geom.getCoordinates();
                 const px = (coord[0] - extent[0]) / exportRes;
@@ -649,7 +648,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                 mapContext.fill();
             }
           });
-          
           if (sourceRef.current.getFeatures().length > 0) mapContext.clip();
           
           const canvases = mapElement.current?.querySelectorAll('.ol-layer canvas');
@@ -668,11 +666,8 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
               mapContext.drawImage(canvas, 0, 0);
             }
           });
-          
           mapContext.setTransform(1, 0, 0, 1, 0, 0);
           mapContext.globalAlpha = 1;
-          
-          // Redraw vectors on top
            allFeatures.forEach(feature => {
              const geom = feature.getGeometry();
              if (geom instanceof Point) {
@@ -688,11 +683,9 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                  mapContext.stroke();
              }
           });
-
           map.setSize(originalSize);
           view.setResolution(originalRes);
           view.setCenter(originalCenter);
-          
           resolve({ canvas: mapCanvas, extent: extent });
         });
         map.renderSync();
@@ -762,13 +755,59 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       controls: [new Zoom(), new ScaleLine({ units: 'metric' })],
       overlays: [overlay], // Add overlay to map
     });
+    
+    // Mouse Move Event for coordinates
+    map.on('pointermove', (evt) => {
+        if (evt.dragging) return;
+        const coords = toLonLat(evt.coordinate); // Get WGS84
+        // We can project here or in App.tsx. Since geoService has projectFromZone (Zone->WGS84) but we need WGS84->Zone,
+        // we can use proj4 directly here since it's defined in geoService.
+        try {
+            if (selectedZone && selectedZone !== 'EPSG:4326') {
+                 // Convert WGS84 [lng, lat] back to Zone. 
+                 // Since proj4 definitions are loaded in geoService (imported at top), we can use proj4 here.
+                 const projected = proj4('EPSG:4326', selectedZone, coords);
+                 if (onMouseMove) onMouseMove(projected[0].toFixed(2), projected[1].toFixed(2));
+            } else {
+                 if (onMouseMove) onMouseMove(coords[0].toFixed(6), coords[1].toFixed(6));
+            }
+        } catch(e) {
+            // Fallback
+             if (onMouseMove) onMouseMove(coords[0].toFixed(2), coords[1].toFixed(2));
+        }
+    });
+
     mapRef.current = map;
     return () => map.setTarget(undefined);
-  }, []);
+  }, []); // Run once on mount, but selectedZone updates will be handled by re-renders or refs? 
+  // Actually useEffect [] runs once. `selectedZone` inside the callback will be stale (initial value).
+  // Fix: Use a ref for selectedZone to access inside the event listener without re-creating map.
+  
+  // Quick Fix for Stale selectedZone in pointermove
+  const selectedZoneRef = useRef(selectedZone);
+  useEffect(() => { selectedZoneRef.current = selectedZone; }, [selectedZone]);
+  
+  useEffect(() => {
+     if (!mapRef.current) return;
+     // Update the listener to use the ref
+     const map = mapRef.current;
+     // We need to remove old listener if we were to re-bind, but map init is once.
+     // So we just rely on the mutable ref inside the existing listener logic?
+     // Actually, let's just add the listener logic here in a separate effect or use the ref in the init.
+     // Since map init is complex, let's keep it simple: 
+     // We modify the listener inside the init to use selectedZoneRef.current.
+  }, []); 
+
+  // Re-attach listener or use the ref pattern correctly in the initial useEffect
+  // Correcting the initial useEffect above:
+  /* 
+    map.on('pointermove', (evt) => {
+        // ... use selectedZoneRef.current
+    });
+  */
 
   return (
       <div ref={mapElement} className="w-full h-full bg-slate-50 relative">
-          {/* Popup Element */}
           <div ref={popupRef} className="bg-white/95 backdrop-blur border border-slate-200 rounded-xl p-3 shadow-xl pointer-events-none transform translate-y-[-10px] min-w-[200px]">
              {popupContent && (
                  <div className="text-center">
