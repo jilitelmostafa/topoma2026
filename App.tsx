@@ -113,6 +113,7 @@ const App: React.FC = () => {
   const [toolboxOpen, setToolboxOpen] = useState(false); // Export Tools (Left)
   const [showGoToPanel, setShowGoToPanel] = useState(false); // Floating "Go To XY" Panel (Now Dropdown from Top)
   const [showExcelPanel, setShowExcelPanel] = useState(false); // Floating "Excel Import" Panel
+  const [showExcelHelp, setShowExcelHelp] = useState(false); // Lightbox for Excel Help
   
   // Configuration State
   const [selectedZone, setSelectedZone] = useState<string>('EPSG:26191'); 
@@ -472,8 +473,8 @@ const App: React.FC = () => {
 
           {/* File Operations */}
           <div className="flex items-center px-2 border-r border-neutral-300 gap-1">
-              <button onClick={resetAll} className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300" title="Nouveau Projet">
-                  <i className="fas fa-file text-neutral-600"></i>
+              <button onClick={resetAll} className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300" title="Effacer tout">
+                  <i className="fas fa-eraser text-red-600"></i>
               </button>
                {/* Add Data Button */}
                <div className="relative group">
@@ -807,7 +808,12 @@ const App: React.FC = () => {
                       {/* Excel Panel Content */}
                       <div className={`pointer-events-auto mt-2 bg-white rounded-lg shadow-xl border border-neutral-300 p-3 w-64 transition-all duration-200 origin-top-right absolute top-full right-0 ${showExcelPanel ? 'scale-100 opacity-100' : 'scale-90 opacity-0 hidden'}`}>
                           <div className="flex justify-between items-center mb-2 border-b border-neutral-100 pb-1">
-                              <span className="text-xs font-bold text-neutral-700">Import Excel XY</span>
+                              <div className="flex items-center gap-1">
+                                  <span className="text-xs font-bold text-neutral-700">Import Excel XY</span>
+                                  <button onClick={() => setShowExcelHelp(true)} className="text-blue-500 hover:text-blue-700 ml-1" title="Voir un exemple">
+                                      <i className="fas fa-info-circle"></i>
+                                  </button>
+                              </div>
                               <button onClick={() => setShowExcelPanel(false)} className="text-neutral-400 hover:text-neutral-600"><i className="fas fa-times"></i></button>
                           </div>
                           <div className="space-y-3">
@@ -951,6 +957,25 @@ const App: React.FC = () => {
               </select>
           </div>
       </div>
+      
+      {/* Lightbox for Excel Help */}
+      {showExcelHelp && (
+          <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setShowExcelHelp(false)}>
+              <div className="bg-white p-1 rounded-lg shadow-2xl relative max-w-4xl max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+                   <div className="flex justify-between items-center p-2 border-b mb-1">
+                       <h3 className="font-bold text-neutral-700">Modèle Excel (Exemple)</h3>
+                       <button onClick={() => setShowExcelHelp(false)} className="text-red-500 hover:text-red-700 text-lg"><i className="fas fa-times"></i></button>
+                   </div>
+                   <div className="p-1 overflow-auto max-h-[80vh]">
+                       <img 
+                           src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjAiQ74Mm4A2CTb1tujt7NK7glGaiJSZdGGaAFFXN15QA7mkLtAfft5LRiu-j5DTfkff8TKmonvXUr-NVBzmj01cxu4djYo7VwiBQMBnZQurh9wEaQHu52xpkRHyQ5KB-R8IDL3Fy32mT4FSB6eIX6tGDRF8vCWEO2LgeVTUMO9U7Lt6OtsKXAGLVjAeg/s1600/xy.png" 
+                           alt="Exemple Format Excel" 
+                           className="max-w-full h-auto object-contain" 
+                       />
+                   </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 };
