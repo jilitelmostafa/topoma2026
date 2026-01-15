@@ -120,6 +120,9 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   
+  // Contact State
+  const [showContactInfo, setShowContactInfo] = useState(false);
+
   // Configuration State
   const [selectedZone, setSelectedZone] = useState<string>('EPSG:26191'); 
   const [selectedExcelFile, setSelectedExcelFile] = useState<File | null>(null);
@@ -476,6 +479,7 @@ const App: React.FC = () => {
     setLocationName("location");
     setSearchQuery("");
     setSearchResults([]);
+    setShowContactInfo(false);
   };
 
   return (
@@ -865,6 +869,9 @@ const App: React.FC = () => {
                        <div className="text-[10px] text-neutral-400">
                            Version 1.0 | © 2026 Tous droits réservés
                        </div>
+                       <div className="mt-2 flex justify-center">
+                           <img src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEj9eIul_VMdvnyDZGj8fRCDeWCSfK0mIYjYGYXDrCg5GI09syk3U6OMO7jlUZV10DYdpoG2Fyf7O7xcckf99GynWdKAQMmlS_st1s1Cumn-Ov-3fYw8M87_H_234Q0HvkZaHjhEUVefckQ/s0-rw/Flag_of_Morocco.gif" alt="Maroc" className="h-4 w-auto" />
+                       </div>
                    </div>
               </div>
           </div>
@@ -937,6 +944,33 @@ const App: React.FC = () => {
                       <i className="fas fa-map-marker-alt text-lg"></i>
                   </button>
 
+              </div>
+
+              {/* Contact Button */}
+              <div className="absolute bottom-12 right-2 z-30 flex flex-col items-end">
+                   {showContactInfo && (
+                       <div className="mb-2 bg-white rounded-lg shadow-xl border border-neutral-300 p-3 w-52 animate-fade-in text-xs z-40">
+                           <div className="flex justify-between items-center border-b pb-1 mb-2">
+                               <span className="font-bold text-neutral-700">Contact</span>
+                               <button onClick={() => setShowContactInfo(false)} className="text-neutral-400 hover:text-red-500"><i className="fas fa-times"></i></button>
+                           </div>
+                           <div className="flex items-center gap-2 mb-2">
+                               <i className="fas fa-envelope text-red-500 w-4 text-center"></i>
+                               <a href="mailto:jilitsig@gmail.com" className="text-blue-600 hover:underline truncate">jilitsig@gmail.com</a>
+                           </div>
+                           <div className="flex items-center gap-2">
+                               <i className="fab fa-whatsapp text-green-500 text-lg w-4 text-center"></i>
+                               <a href="https://wa.me/212668090285" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline font-bold">+212 668 09 02 85</a>
+                           </div>
+                       </div>
+                   )}
+                   <button 
+                    onClick={() => setShowContactInfo(!showContactInfo)}
+                    className={`w-8 h-8 rounded shadow border flex items-center justify-center transition-colors ${showContactInfo ? 'bg-blue-100 text-blue-600 border-blue-300' : 'bg-white/90 text-neutral-600 border-neutral-300 hover:text-blue-600 hover:bg-white'}`}
+                    title="Contact / Support"
+                  >
+                      <i className="fas fa-headset text-sm"></i>
+                  </button>
               </div>
 
               {/* My Position Button - Simplified & Moved */}
