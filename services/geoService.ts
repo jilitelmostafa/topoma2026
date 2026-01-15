@@ -81,3 +81,26 @@ export const getResolutionFromScale = (scaleValue: number, lat: number): number 
   const resolution = (scaleValue * 0.000264583333) / Math.cos(lat * Math.PI / 180);
   return resolution;
 };
+
+// تنسيق المساحة للعرض (هكتار، آر، سنتيار)
+export const formatArea = (area: number): { formattedM2: string, formattedHa: string } => {
+  // Format m2 with spaces (e.g. 3 922 694.89)
+  const formattedM2 = area.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  // Calculate Ha a ca
+  const hectares = Math.floor(area / 10000);
+  const remainder = area % 10000;
+  const ares = Math.floor(remainder / 100);
+  const centiares = remainder % 100;
+
+  let formattedHa = "";
+  if (hectares > 0) {
+      formattedHa += `${hectares} ha `;
+  }
+  if (ares > 0 || hectares > 0) {
+      formattedHa += `${ares} a `;
+  }
+  formattedHa += `${centiares.toFixed(2)} ca`;
+
+  return { formattedM2, formattedHa };
+};

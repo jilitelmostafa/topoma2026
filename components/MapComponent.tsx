@@ -9,6 +9,8 @@ import { fromLonLat, toLonLat } from 'ol/proj';
 import Draw, { createBox } from 'ol/interaction/Draw';
 import { Style, Stroke, Fill, Circle as CircleStyle, Text } from 'ol/style';
 import { ScaleLine, Zoom } from 'ol/control';
+import Overlay from 'ol/Overlay';
+import { getArea } from 'ol/sphere';
 import KML from 'ol/format/KML';
 import GeoJSON from 'ol/format/GeoJSON';
 import Polygon from 'ol/geom/Polygon';
@@ -16,7 +18,7 @@ import MultiPolygon from 'ol/geom/MultiPolygon';
 import LineString from 'ol/geom/LineString';
 import Point from 'ol/geom/Point';
 import Feature from 'ol/Feature';
-import { convertToWGS84, calculateScale, getResolutionFromScale, projectFromZone } from '../services/geoService';
+import { convertToWGS84, calculateScale, getResolutionFromScale, projectFromZone, formatArea } from '../services/geoService';
 
 // تعريف المكتبات العالمية
 declare const shp: any;
@@ -45,6 +47,11 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
   const kmlSourceRef = useRef<VectorSource>(new VectorSource());
   const pointsSourceRef = useRef<VectorSource>(new VectorSource());
   const baseLayerRef = useRef<TileLayer<XYZ> | null>(null);
+  
+  // Refs for Popup Overlay
+  const popupRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<Overlay | null>(null);
+  const [popupContent, setPopupContent] = useState<{ m2: string, ha: string } | null>(null);
 
   // تعريف النمط الأحمر الشفاف للرسم
   const redBoundaryStyle = new Style({
@@ -83,6 +90,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       view.animate({ resolution: res, duration: 600 });
     },
     loadKML: (file: File) => {
+      overlayRef.current?.setPosition(undefined); // Hide popup
       const processFeatures = (features: any[]) => {
          kmlSourceRef.current.clear();
          sourceRef.current.clear();
@@ -131,6 +139,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       }
     },
     loadShapefile: (file: File) => {
+      overlayRef.current?.setPosition(undefined); // Hide popup
       const reader = new FileReader();
       reader.onload = async (e) => {
         if (e.target?.result) {
@@ -171,6 +180,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       reader.readAsArrayBuffer(file);
     },
     loadDXF: (file: File, zoneCode: string) => {
+      overlayRef.current?.setPosition(undefined); // Hide popup
       const reader = new FileReader();
       reader.onload = (e) => {
         const text = e.target?.result as string;
@@ -235,6 +245,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       reader.readAsText(file);
     },
     loadExcelPoints: (points) => {
+        overlayRef.current?.setPosition(undefined); // Hide popup
         pointsSourceRef.current.clear();
         const features = points.map((pt, index) => {
             const feature = new Feature({
@@ -259,6 +270,8 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     setDrawTool: (type) => {
       if (!mapRef.current) return;
       mapRef.current.getInteractions().forEach((i) => { if (i instanceof Draw) mapRef.current?.removeInteraction(i); });
+      overlayRef.current?.setPosition(undefined); // Reset popup when changing tool
+      
       if (!type) return;
       
       const draw = new Draw({
@@ -271,16 +284,34 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       draw.on('drawstart', () => { 
         sourceRef.current.clear(); 
         kmlSourceRef.current.clear(); 
+        overlayRef.current?.setPosition(undefined); // Hide popup on start drawing
       });
 
       draw.on('drawend', (event) => {
         const geometry = event.feature.getGeometry();
         if (!geometry) return;
+        
+        // Calculate Area
+        const area = getArea(geometry);
+        const { formattedM2, formattedHa } = formatArea(area);
+        setPopupContent({ m2: formattedM2, ha: formattedHa });
+
         const extent = geometry.getExtent();
         const center = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
         const wgs = convertToWGS84(center[0], center[1]);
         const currentRes = mapRef.current?.getView().getResolution() || 1;
         const scale = calculateScale(currentRes, parseFloat(wgs.lat));
+        
+        // Show Popup
+        if (overlayRef.current) {
+             // For Polygons, try to use interior point, otherwise center of extent
+             let position = center;
+             if (geometry instanceof Polygon) {
+                 position = geometry.getInteriorPoint().getCoordinates();
+             }
+             overlayRef.current.setPosition(position);
+        }
+
         onSelectionComplete({ lat: wgs.lat, lng: wgs.lng, scale: scale, bounds: extent });
       });
       mapRef.current.addInteraction(draw);
@@ -289,6 +320,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         sourceRef.current.clear(); 
         kmlSourceRef.current.clear(); 
         pointsSourceRef.current.clear();
+        overlayRef.current?.setPosition(undefined);
     },
     getMapCanvas: async (targetScale) => {
       if (!mapRef.current) return null;
@@ -438,6 +470,16 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
   useEffect(() => {
     if (!mapElement.current) return;
     
+    // Create Overlay for Area Popup
+    const overlay = new Overlay({
+        element: popupRef.current!,
+        autoPan: true,
+        positioning: 'bottom-center',
+        stopEvent: false,
+        offset: [0, -10],
+    });
+    overlayRef.current = overlay;
+
     const lyrCode = mapType === 'satellite' ? 's' : 'y';
     const baseLayer = new TileLayer({
       source: new XYZ({
@@ -470,12 +512,30 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       ],
       view: new View({ center: fromLonLat([-7.5898, 33.5731]), zoom: 6, maxZoom: 22 }),
       controls: [new Zoom(), new ScaleLine({ units: 'metric' })],
+      overlays: [overlay], // Add overlay to map
     });
     mapRef.current = map;
     return () => map.setTarget(undefined);
   }, []);
 
-  return <div ref={mapElement} className="w-full h-full bg-slate-900"></div>;
+  return (
+      <div ref={mapElement} className="w-full h-full bg-slate-900 relative">
+          {/* Popup Element */}
+          <div ref={popupRef} className="bg-slate-900/90 backdrop-blur border border-white/10 rounded-xl p-3 shadow-xl pointer-events-none transform translate-y-[-10px] min-w-[200px]">
+             {popupContent && (
+                 <div className="text-center">
+                     <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Surface Calculée</div>
+                     <div className="text-sm font-black text-white mb-1">
+                        Surface : {popupContent.m2} m²
+                     </div>
+                     <div className="text-xs font-mono text-emerald-400 font-bold">
+                        {popupContent.ha}
+                     </div>
+                 </div>
+             )}
+          </div>
+      </div>
+  );
 });
 
 export default MapComponent;
