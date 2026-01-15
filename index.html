@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoMapper Pro - Moroccan SIG</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.2.1/ol.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Libraries for TIFF and ZIP -->
+    <script src="https://cdn.jsdelivr.net/npm/utif@1.1.0/UTIF.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&family=Roboto:wght@400;700&display=swap');
+        body { font-family: 'Noto Sans Arabic', sans-serif; margin: 0; padding: 0; }
+        #map { height: 100vh; width: 100vw; }
+        .custom-modal-font { font-family: 'Roboto', Arial, sans-serif; }
+        .ol-zoom { right: 0.5rem; bottom: 0.5rem; left: auto; top: auto; }
+        .ol-zoom button { background-color: white !important; color: #1e293b !important; border-radius: 8px !important; margin: 2px !important; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "ol": "https://esm.sh/ol@^10.2.1",
+    "ol/": "https://esm.sh/ol@^10.2.1/",
+    "proj4": "https://esm.sh/proj4@^2.20.2",
+    "path": "https://esm.sh/path@^0.12.7",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-black">
+    <div id="root"></div>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

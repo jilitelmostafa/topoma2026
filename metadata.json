@@ -1,0 +1,7 @@
+{
+  "name": "خريطة تفاعلية ",
+  "description": "An advanced mapping system for creating, measuring, and exporting GIS data with support for Maroc Lambert projections and Google Satellite imagery.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
