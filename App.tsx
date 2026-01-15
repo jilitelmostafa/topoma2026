@@ -16,8 +16,15 @@ interface ExportData {
   projection?: string;
 }
 
+interface ExportResult {
+    name: string;
+    date: string;
+    size: string;
+    coords: string;
+}
+
 type WorkflowStep = 'IDLE' | 'SELECTED' | 'PROCESSING' | 'DONE';
-type ToolType = 'Rectangle' | 'Polygon' | 'Pan' | 'MeasureLength' | 'MeasureArea' | null;
+type ToolType = 'Rectangle' | 'Polygon' | 'Point' | 'Pan' | 'MeasureLength' | 'MeasureArea' | null;
 type MapType = 'satellite' | 'hybrid';
 
 // Custom Export Resolutions/Scales as requested
@@ -83,6 +90,7 @@ const AREA_UNITS = [
 
 const App: React.FC = () => {
   const [exportData, setExportData] = useState<ExportData | null>(null);
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null);
   const [step, setStep] = useState<WorkflowStep>('IDLE');
   const [activeTool, setActiveTool] = useState<ToolType>(null);
   const [zipBlob, setZipBlob] = useState<Blob | null>(null);
@@ -133,8 +141,12 @@ const App: React.FC = () => {
 
   const handleScaleChange = (newScale: number) => {
     setSelectedScale(newScale);
-    // When scale changes, ensure we zoom into the selection if available
     mapComponentRef.current?.setMapScale(newScale, true);
+
+    // Auto-Generate if we have a selection
+    if (exportData) {
+        startClipping(newScale);
+    }
   };
 
   const toggleTool = (tool: ToolType) => {
@@ -155,7 +167,7 @@ const App: React.FC = () => {
         mapComponentRef.current?.setDrawTool(newTool === 'Pan' ? null : newTool);
     }
 
-    if (newTool && newTool !== 'Pan' && newTool !== 'MeasureLength' && newTool !== 'MeasureArea') {
+    if (newTool && newTool !== 'Pan' && newTool !== 'MeasureLength' && newTool !== 'MeasureArea' && newTool !== 'Point') {
         setStep('IDLE');
         setExportData(null);
         setZipBlob(null);
@@ -288,9 +300,12 @@ const App: React.FC = () => {
     setManualY("");
   };
 
-  const startClipping = async () => {
+  const startClipping = async (scaleOverride?: number) => {
     if (!mapComponentRef.current || !exportData) return;
     
+    // Use override if provided (for auto-generation), otherwise use state
+    const currentScale = scaleOverride || selectedScale;
+
     setStep('PROCESSING');
     setCountdown(5);
 
@@ -306,7 +321,7 @@ const App: React.FC = () => {
 
     setTimeout(async () => {
         try {
-            const result = await mapComponentRef.current!.getMapCanvas(selectedScale);
+            const result = await mapComponentRef.current!.getMapCanvas(currentScale);
             clearInterval(timer); 
 
             if (!result) throw new Error("Empty Canvas");
@@ -335,7 +350,8 @@ const App: React.FC = () => {
             // Format Date: MM.YY
             const date = new Date();
             const dateStr = `${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getFullYear().toString().slice(-2)}`;
-            
+            const fullDateStr = date.toLocaleDateString('fr-FR');
+
             // Format Coordinates: n30_w010
             const lat = parseFloat(exportData.lat);
             const lng = parseFloat(exportData.lng);
@@ -344,8 +360,8 @@ const App: React.FC = () => {
             const coordStr = `${latDir}${Math.floor(Math.abs(lat))}_${lonDir}${Math.floor(Math.abs(lng)).toString().padStart(3, '0')}`;
             
             // Scale String (e.g., 500m or 1000)
-            const scaleObj = EXPORT_SCALES.find(s => s.value === selectedScale);
-            const scaleStr = scaleObj ? scaleObj.label.replace(/\s+/g, '') : selectedScale.toString();
+            const scaleObj = EXPORT_SCALES.find(s => s.value === currentScale);
+            const scaleStr = scaleObj ? scaleObj.label.replace(/\s+/g, '') : currentScale.toString();
 
             const baseName = `${locationName}_${scaleStr}_${coordStr}_${dateStr}_topoma`;
 
@@ -355,8 +371,20 @@ const App: React.FC = () => {
             zip.file(`${baseName}.prj`, prj);
 
             const blob = await zip.generateAsync({ type: 'blob' });
+            const sizeInMB = (blob.size / (1024 * 1024)).toFixed(2);
+            const sizeStr = parseFloat(sizeInMB) < 1 ? `${(blob.size / 1024).toFixed(0)} KB` : `${sizeInMB} MB`;
+
             setZipBlob(blob);
             setFileName(`${baseName}.zip`);
+            
+            // Set Result Data for Table
+            setExportResult({
+                name: `${baseName}.tif`,
+                date: fullDateStr,
+                size: sizeStr,
+                coords: `Lat:${lat.toFixed(4)}, Lon:${lng.toFixed(4)}`
+            });
+
             setStep('DONE');
         } catch (e) {
             setStep('IDLE');
@@ -373,14 +401,17 @@ const App: React.FC = () => {
     const a = document.createElement('a');
     a.href = url; a.download = fileName; a.click();
     URL.revokeObjectURL(url);
-    setStep('IDLE');
-    setExportData(null);
+    // Don't reset everything, just clear selection to allow new selection
+    // Or keep state DONE to allow re-download. 
+    // To match request "Change resolution -> auto generate", we keep step DONE or SELECTED logic
+    setStep('DONE'); 
   };
 
   const resetAll = () => {
     mapComponentRef.current?.clearAll();
     mapComponentRef.current?.setDrawTool(null);
     setExportData(null);
+    setExportResult(null);
     setStep('IDLE');
     setActiveTool(null);
     setZipBlob(null);
@@ -408,7 +439,7 @@ const App: React.FC = () => {
             className={`h-8 px-3 flex items-center gap-2 rounded border mr-2 ${toolboxOpen ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`}
             title="Export GeoTIFF"
           >
-              <i className="fas fa-file-image text-green-700"></i> <span className="text-xs font-bold hidden md:inline">GeoTIFF</span>
+              <i className="fas fa-file-image text-green-700"></i> <span className="text-xs font-bold hidden md:inline">Exporter GeoTIFF</span>
           </button>
 
           {/* File Operations */}
@@ -418,14 +449,14 @@ const App: React.FC = () => {
               </button>
                {/* Add Data Button */}
                <div className="relative group">
-                   <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300 bg-yellow-50" title="Add Data">
+                   <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300 bg-yellow-50" title="Ajouter Données">
                       <i className="fas fa-plus text-black font-bold text-xs absolute top-1.5 left-2"></i>
                       <i className="fas fa-layer-group text-yellow-600"></i>
                    </button>
                    <div className="absolute top-full left-0 mt-1 bg-white border border-neutral-400 shadow-lg rounded-none w-48 hidden group-hover:block z-50">
-                       <button onClick={() => handleFileClick(kmlInputRef)} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-100 flex items-center gap-2"><i className="fas fa-globe text-blue-500"></i> Add KML/KMZ</button>
-                       <button onClick={() => handleFileClick(shpInputRef)} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-100 flex items-center gap-2"><i className="fas fa-shapes text-green-500"></i> Add Shapefile (ZIP)</button>
-                       <button onClick={() => handleFileClick(dxfInputRef)} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-100 flex items-center gap-2"><i className="fas fa-pencil-ruler text-purple-500"></i> Add DXF</button>
+                       <button onClick={() => handleFileClick(kmlInputRef)} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-100 flex items-center gap-2"><i className="fas fa-globe text-blue-500"></i> Ajouter KML/KMZ</button>
+                       <button onClick={() => handleFileClick(shpInputRef)} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-100 flex items-center gap-2"><i className="fas fa-shapes text-green-500"></i> Ajouter Shapefile (ZIP)</button>
+                       <button onClick={() => handleFileClick(dxfInputRef)} className="w-full text-left px-3 py-2 text-xs hover:bg-blue-100 flex items-center gap-2"><i className="fas fa-pencil-ruler text-purple-500"></i> Ajouter DXF</button>
                    </div>
                </div>
           </div>
@@ -452,7 +483,7 @@ const App: React.FC = () => {
                   {showGoToPanel && (
                       <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-xl border border-neutral-300 p-3 w-64 z-50">
                           <div className="flex justify-between items-center mb-2 border-b border-neutral-100 pb-1">
-                              <span className="text-xs font-bold text-neutral-700">Aller à XY</span>
+                              <span className="text-xs font-bold text-neutral-700">Go To XY</span>
                               <button onClick={() => setShowGoToPanel(false)} className="text-neutral-400 hover:text-neutral-600"><i className="fas fa-times"></i></button>
                           </div>
                           <div className="space-y-2">
@@ -555,7 +586,7 @@ const App: React.FC = () => {
                 onClick={() => setTocOpen(!tocOpen)}
                 className={`hidden md:flex h-8 px-3 items-center gap-2 rounded border ${tocOpen ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`}
                >
-                   <i className="fas fa-list"></i> <span className="text-xs font-bold">Table of Contents</span>
+                   <i className="fas fa-list"></i> <span className="text-xs font-bold">Couches</span>
                </button>
 
                {/* Mobile Layer Switcher (Simple Toggle) */}
@@ -575,14 +606,14 @@ const App: React.FC = () => {
           {/* LEFT PANEL: Export Tools (GeoTIFF) */}
           <div className={`${toolboxOpen ? 'w-80 translate-x-0' : 'w-0 -translate-x-full opacity-0'} transition-all duration-300 bg-white border-r border-neutral-300 flex flex-col shrink-0 overflow-hidden absolute left-0 top-0 h-full z-20 shadow-lg md:shadow-none`}>
                <div className="bg-neutral-100 p-2 border-b border-neutral-300 font-bold text-xs text-green-800 flex justify-between items-center">
-                  <span><i className="fas fa-file-image mr-1"></i> Export GeoTIFF</span>
+                  <span><i className="fas fa-file-image mr-1"></i> Exporter GeoTIFF</span>
                   <button onClick={() => setToolboxOpen(false)} className="text-neutral-500 hover:text-green-600"><i className="fas fa-times"></i></button>
               </div>
               
               <div className="flex-grow overflow-y-auto p-3 bg-neutral-50">
                    <div className="border border-neutral-300 bg-white mb-2 shadow-sm rounded-sm">
                        <div className="bg-neutral-200 px-2 py-1.5 text-xs font-bold border-b border-neutral-300 flex items-center gap-2 text-neutral-700">
-                           <i className="fas fa-crop-alt text-neutral-500"></i> Clip Raster
+                           <i className="fas fa-crop-alt text-neutral-500"></i> Extraction Raster
                        </div>
                        <div className="p-3 text-xs space-y-4">
                            
@@ -592,7 +623,6 @@ const App: React.FC = () => {
                                    <div className="font-bold flex items-center gap-1 border-b border-blue-200 pb-1 mb-1">
                                        <i className="fas fa-info-circle"></i> Info Élément
                                    </div>
-                                   {/* REMOVED ZONE LINE AS REQUESTED */}
                                    {exportData.area && (
                                        <div className="flex justify-between">
                                             <span className="text-blue-700">Area:</span>
@@ -613,7 +643,7 @@ const App: React.FC = () => {
                            )}
 
                            <div>
-                               <label className="block text-neutral-600 mb-1.5 font-medium">Output Scale / Resolution:</label>
+                               <label className="block text-neutral-600 mb-1.5 font-medium">Échelle / Résolution:</label>
                                <div className="relative">
                                    <select 
                                       value={selectedScale}
@@ -628,14 +658,14 @@ const App: React.FC = () => {
                                </div>
                            </div>
 
-                           <div className="border border-neutral-200 p-3 bg-neutral-50 h-40 flex flex-col items-center justify-center text-center rounded relative overflow-hidden">
-                               {step === 'IDLE' && <span className="text-neutral-400 italic">Select area on map...</span>}
+                           <div className="border border-neutral-200 p-3 bg-neutral-50 min-h-[160px] flex flex-col items-center justify-center text-center rounded relative overflow-hidden">
+                               {step === 'IDLE' && <span className="text-neutral-400 italic">Sélectionnez une zone...</span>}
                                
                                {step === 'SELECTED' && exportData && (
                                    <>
-                                     <div className="text-green-600 font-bold mb-3 flex items-center gap-1"><i className="fas fa-check-circle"></i> Ready to Export</div>
-                                     <button onClick={startClipping} className="bg-blue-600 border border-blue-700 text-white px-6 py-2 rounded hover:bg-blue-700 shadow-md transition-all font-bold flex items-center gap-2">
-                                         <i className="fas fa-play text-[10px]"></i> GENERATE
+                                     <div className="text-green-600 font-bold mb-3 flex items-center gap-1"><i className="fas fa-check-circle"></i> Prêt pour le traitement</div>
+                                     <button onClick={() => startClipping()} className="bg-blue-600 border border-blue-700 text-white px-6 py-2 rounded hover:bg-blue-700 shadow-md transition-all font-bold flex items-center gap-2">
+                                         <i className="fas fa-play text-[10px]"></i> GÉNÉRER
                                      </button>
                                    </>
                                )}
@@ -649,18 +679,39 @@ const App: React.FC = () => {
                                               <i className="fas fa-layer-group text-blue-400 text-2xl animate-pulse"></i>
                                           </div>
                                       </div>
-                                     <span className="text-blue-700 font-bold text-xs animate-pulse">Building Raster... {countdown}%</span>
+                                     <span className="text-blue-700 font-bold text-xs animate-pulse">Traitement en cours... {countdown}%</span>
                                      <div className="w-full bg-neutral-200 h-1.5 mt-2 rounded-full overflow-hidden">
                                          <div className="bg-blue-500 h-full transition-all duration-1000 ease-linear" style={{width: `${(5-countdown)*20}%`}}></div>
                                      </div>
                                    </div>
                                )}
 
-                               {step === 'DONE' && (
-                                   <div className="flex flex-col items-center animate-bounce-in">
-                                       <div className="text-green-600 font-bold mb-2">Success!</div>
-                                       <button onClick={downloadFile} className="bg-green-600 border border-green-700 text-white px-4 py-2 rounded hover:bg-green-700 flex items-center gap-2 font-bold shadow-md">
-                                           <i className="fas fa-download"></i> Download TIF
+                               {step === 'DONE' && exportResult && (
+                                   <div className="flex flex-col items-center w-full">
+                                       <div className="text-green-600 font-bold mb-2">Terminé !</div>
+                                       
+                                       {/* Result Table */}
+                                       <div className="w-full bg-white border border-neutral-300 rounded mb-3 text-[10px] text-left overflow-hidden">
+                                           <div className="grid grid-cols-[60px_1fr] border-b border-neutral-200">
+                                               <div className="bg-neutral-100 p-1 font-bold text-neutral-600">Nom</div>
+                                               <div className="p-1 truncate" title={exportResult.name}>{exportResult.name}</div>
+                                           </div>
+                                           <div className="grid grid-cols-[60px_1fr] border-b border-neutral-200">
+                                               <div className="bg-neutral-100 p-1 font-bold text-neutral-600">Date</div>
+                                               <div className="p-1">{exportResult.date}</div>
+                                           </div>
+                                            <div className="grid grid-cols-[60px_1fr] border-b border-neutral-200">
+                                               <div className="bg-neutral-100 p-1 font-bold text-neutral-600">Taille</div>
+                                               <div className="p-1 font-mono text-blue-600 font-bold">{exportResult.size}</div>
+                                           </div>
+                                           <div className="grid grid-cols-[60px_1fr]">
+                                               <div className="bg-neutral-100 p-1 font-bold text-neutral-600">Coord</div>
+                                               <div className="p-1">{exportResult.coords}</div>
+                                           </div>
+                                       </div>
+
+                                       <button onClick={downloadFile} className="bg-green-600 border border-green-700 text-white px-4 py-2 rounded hover:bg-green-700 flex items-center gap-2 font-bold shadow-md w-full justify-center">
+                                           <i className="fas fa-download"></i> Télécharger ZIP
                                        </button>
                                    </div>
                                )}
@@ -728,6 +779,15 @@ const App: React.FC = () => {
                       <i className="fas fa-draw-polygon text-lg"></i>
                   </button>
 
+                  {/* Tool: Create Point */}
+                  <button 
+                    onClick={() => toggleTool('Point')} 
+                    className={`pointer-events-auto w-10 h-10 rounded-lg shadow-md border flex items-center justify-center transition-colors ${activeTool === 'Point' ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'}`} 
+                    title="Ajouter un Point"
+                  >
+                      <i className="fas fa-map-marker-alt text-lg"></i>
+                  </button>
+
               </div>
 
               {/* My Position Button - Simplified & Moved */}
@@ -756,23 +816,23 @@ const App: React.FC = () => {
           {/* RIGHT PANEL: TABLE OF CONTENTS (Desktop Only) */}
           <div className={`${tocOpen ? 'w-64 md:w-72 translate-x-0' : 'w-0 translate-x-full opacity-0'} hidden md:flex transition-all duration-300 bg-white border-l border-neutral-300 flex-col shrink-0 overflow-hidden absolute right-0 md:static z-20 h-full shadow-lg md:shadow-none order-last`}>
               <div className="bg-neutral-100 p-2 border-b border-neutral-300 font-bold text-xs text-neutral-700 flex justify-between items-center">
-                  <span>Layers</span>
+                  <span>Couches</span>
                   <button onClick={() => setTocOpen(false)} className="md:hidden text-neutral-500"><i className="fas fa-times"></i></button>
               </div>
               <div className="flex-grow overflow-y-auto p-2">
                   <div className="text-xs select-none">
                       <div className="flex items-center gap-1 mb-1 font-bold text-neutral-800">
-                           <i className="fas fa-layer-group text-yellow-600"></i> <span>Layers</span>
+                           <i className="fas fa-layer-group text-yellow-600"></i> <span>Couches</span>
                       </div>
                       <div className="ml-4 border-l border-neutral-300 pl-2 space-y-2">
                           <div>
                               <div className="flex items-center gap-2">
                                   <input type="checkbox" checked={mapType === 'satellite'} onChange={() => setMapType('satellite')} className="cursor-pointer" />
-                                  <span className="text-neutral-700">Imagery (Satellite)</span>
+                                  <span className="text-neutral-700">Imagerie Sat (Google)</span>
                               </div>
                               <div className="flex items-center gap-2 mt-1">
                                   <input type="checkbox" checked={mapType === 'hybrid'} onChange={() => setMapType('hybrid')} className="cursor-pointer" />
-                                  <span className="text-neutral-700">Hybrid Labels</span>
+                                  <span className="text-neutral-700">Etiquettes</span>
                               </div>
                           </div>
                           {loadedFiles.map((file, idx) => (
@@ -785,7 +845,7 @@ const App: React.FC = () => {
                   </div>
               </div>
               <div className="bg-neutral-50 p-1 border-t border-neutral-300 text-[10px] flex justify-between text-neutral-500">
-                  <span>List By Drawing Order</span>
+                  <span>Ordre d'affichage</span>
                   <i className="fas fa-sort-amount-down"></i>
               </div>
           </div>

@@ -46,18 +46,13 @@ export const convertToWGS84 = (x: number, y: number): WGS84Coords => {
 export const projectFromZone = (x: number, y: number, zoneCode: string): number[] | null => {
   try {
     if (zoneCode === 'EPSG:4326') {
-       // إذا كانت WGS84 نتأكد فقط أنها في النطاق المعقول
        if (Math.abs(y) <= 90 && Math.abs(x) <= 180) return [x, y];
        return null;
     }
-    
-    // التحويل باستخدام مكتبة Proj4 والتعريفات الدقيقة أعلاه
     const coords = proj4(zoneCode, 'EPSG:4326', [x, y]);
     const lng = coords[0];
     const lat = coords[1];
     
-    // التحقق من أن النتيجة تقع داخل النطاق الجغرافي للمغرب (مع هامش بسيط)
-    // Lat: 20 -> 37, Lng: -18 -> 0
     if (lat >= 20 && lat <= 38 && lng >= -19 && lng <= 1 && !isNaN(lng) && !isNaN(lat)) {
       return [lng, lat];
     }
@@ -67,6 +62,16 @@ export const projectFromZone = (x: number, y: number, zoneCode: string): number[
     console.error("Projection error:", e);
     return null;
   }
+};
+
+export const projectToZone = (lon: number, lat: number, zoneCode: string): { x: number, y: number } | null => {
+    try {
+        if (zoneCode === 'EPSG:4326') return { x: lon, y: lat };
+        const coords = proj4('EPSG:4326', zoneCode, [lon, lat]);
+        return { x: coords[0], y: coords[1] };
+    } catch (e) {
+        return null;
+    }
 };
 
 // حساب مقياس الرسم الحقيقي عند خط عرض معين
@@ -82,12 +87,9 @@ export const getResolutionFromScale = (scaleValue: number, lat: number): number 
   return resolution;
 };
 
-// تنسيق المساحة للعرض (هكتار، آر، سنتيار)
+// تنسيق المساحة للعرض
 export const formatArea = (area: number): { formattedM2: string, formattedHa: string } => {
-  // Format m2 with spaces (e.g. 3 922 694.89)
   const formattedM2 = area.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-  // Calculate Ha a ca
   const hectares = Math.floor(area / 10000);
   const remainder = area % 10000;
   const ares = Math.floor(remainder / 100);
@@ -105,29 +107,89 @@ export const formatArea = (area: number): { formattedM2: string, formattedHa: st
   return { formattedM2, formattedHa };
 };
 
-// Reverse Geocoding to get Commune Name
+// Reverse Geocoding
 export const fetchLocationName = async (lat: number, lon: number): Promise<string> => {
     try {
         const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=12&addressdetails=1`, {
-            headers: {
-                'User-Agent': 'GeoMapperPro/1.0'
-            }
+            headers: { 'User-Agent': 'GeoMapperPro/1.0' }
         });
         const data = await response.json();
-        
-        // Prioritize: Village -> Town -> City -> County -> State
         const addr = data.address;
         if (!addr) return "location";
-        
         const name = addr.village || addr.town || addr.city || addr.municipality || addr.county || "maroc";
-        
-        // Sanitize: replace spaces with underscores, lowercase, remove special chars
-        return name.toLowerCase()
-            .replace(/\s+/g, '_')
-            .replace(/[^a-z0-9_]/g, '');
-            
+        return name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     } catch (e) {
         console.error("Geocoding failed", e);
         return "location";
     }
+};
+
+// Fetch Elevation (Z)
+export const fetchElevation = async (lat: number, lon: number): Promise<number> => {
+    try {
+        // Using Open-Elevation API (Public/Free)
+        const response = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lon}`);
+        const data = await response.json();
+        if (data && data.results && data.results.length > 0) {
+            return data.results[0].elevation;
+        }
+        return 0;
+    } catch (e) {
+        console.warn("Elevation fetch failed, defaulting to 0", e);
+        return 0;
+    }
+};
+
+// Generate Point DXF
+export const createPointDXF = (x: number, y: number, z: number, label: string) => {
+    return `0
+SECTION
+2
+ENTITIES
+0
+POINT
+8
+Points
+10
+${x.toFixed(3)}
+20
+${y.toFixed(3)}
+30
+${z.toFixed(3)}
+0
+TEXT
+8
+Labels
+10
+${x.toFixed(3)}
+20
+${y.toFixed(3)}
+30
+${z.toFixed(3)}
+40
+2.5
+1
+${label}
+0
+ENDSEC
+0
+EOF`;
+};
+
+// Generate Point Text File
+export const createPointText = (x: number, y: number, z: number, lat: number, lon: number, label: string, zoneLabel: string) => {
+    return `POINT DATA REPORT
+-------------------
+Label: ${label}
+Zone: ${zoneLabel}
+
+PROJECTED COORDINATES (Meters)
+X : ${x.toFixed(3)} m
+Y : ${y.toFixed(3)} m
+Z : ${z.toFixed(3)} m
+
+GEOGRAPHIC COORDINATES (WGS84)
+Latitude  : ${lat.toFixed(7)}
+Longitude : ${lon.toFixed(7)}
+`;
 };
