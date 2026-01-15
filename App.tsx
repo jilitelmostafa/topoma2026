@@ -93,7 +93,7 @@ const App: React.FC = () => {
   // UI Layout State
   const [tocOpen, setTocOpen] = useState(true); // Table of Contents (Right)
   const [toolboxOpen, setToolboxOpen] = useState(false); // Export Tools (Left)
-  const [showGoToPanel, setShowGoToPanel] = useState(false); // Floating "Go To XY" Panel
+  const [showGoToPanel, setShowGoToPanel] = useState(false); // Floating "Go To XY" Panel (Now Dropdown from Top)
   const [showExcelPanel, setShowExcelPanel] = useState(false); // Floating "Excel Import" Panel
   
   // Configuration State
@@ -399,7 +399,7 @@ const App: React.FC = () => {
                </div>
           </div>
 
-          {/* Basic Navigation & Measurement */}
+          {/* Basic Navigation & Go To XY */}
           <div className="flex items-center px-2 border-r border-neutral-300 gap-1">
               <button 
                 onClick={() => toggleTool('Pan')} 
@@ -408,12 +408,46 @@ const App: React.FC = () => {
               >
                   <i className="fas fa-hand-paper text-neutral-700"></i>
               </button>
-              <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300" title="Zoom In" onClick={() => mapComponentRef.current?.setMapScale(selectedScale / 2)}>
-                  <i className="fas fa-search-plus text-neutral-700"></i>
-              </button>
-              <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300" title="Zoom Out" onClick={() => mapComponentRef.current?.setMapScale(selectedScale * 2)}>
-                  <i className="fas fa-search-minus text-neutral-700"></i>
-              </button>
+              
+              {/* Go To XY Tool (Replaces Zoom Buttons) */}
+              <div className="relative">
+                  <button 
+                    onClick={() => { setShowGoToPanel(!showGoToPanel); setShowExcelPanel(false); }}
+                    className={`h-8 px-2 flex items-center justify-center rounded border transition-colors ${showGoToPanel ? 'bg-neutral-200 border-neutral-400' : 'hover:bg-neutral-200 border-transparent hover:border-neutral-300'}`}
+                    title="Go To XY"
+                  >
+                      <i className="fas fa-map-marker-alt text-red-600 mr-1"></i> <span className="text-xs font-bold text-neutral-700">Go To XY</span>
+                  </button>
+                  
+                  {/* Dropdown Panel for Go To XY */}
+                  {showGoToPanel && (
+                      <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-xl border border-neutral-300 p-3 w-64 z-50">
+                          <div className="flex justify-between items-center mb-2 border-b border-neutral-100 pb-1">
+                              <span className="text-xs font-bold text-neutral-700">Aller à XY</span>
+                              <button onClick={() => setShowGoToPanel(false)} className="text-neutral-400 hover:text-neutral-600"><i className="fas fa-times"></i></button>
+                          </div>
+                          <div className="space-y-2">
+                              <div>
+                                  <label className="block text-[10px] text-neutral-500 mb-0.5">Projection</label>
+                                  <select value={selectedZone} onChange={(e) => setSelectedZone(e.target.value)} className="w-full text-xs border border-neutral-300 rounded p-1 bg-neutral-50 focus:outline-none focus:border-blue-400">
+                                     {ZONES.map(z => <option key={z.code} value={z.code}>{z.label}</option>)}
+                                  </select>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                      <label className="block text-[10px] text-neutral-500 mb-0.5">X (Easting)</label>
+                                      <input type="text" value={manualX} onChange={(e) => setManualX(e.target.value)} className="w-full text-xs border border-neutral-300 rounded p-1 focus:outline-none focus:border-blue-400" placeholder="000000" />
+                                  </div>
+                                  <div>
+                                      <label className="block text-[10px] text-neutral-500 mb-0.5">Y (Northing)</label>
+                                      <input type="text" value={manualY} onChange={(e) => setManualY(e.target.value)} className="w-full text-xs border border-neutral-300 rounded p-1 focus:outline-none focus:border-blue-400" placeholder="000000" />
+                                  </div>
+                              </div>
+                              <button onClick={handleManualAddPoint} className="w-full bg-blue-600 text-white text-xs py-1.5 rounded hover:bg-blue-700 transition-colors flex items-center justify-center gap-1 font-medium"><i className="fas fa-location-arrow text-[10px]"></i> Localiser</button>
+                          </div>
+                      </div>
+                  )}
+               </div>
 
               {/* Measurement Section (Dark Yellow Rulers) */}
               <div className="flex items-center gap-1 ml-2 pl-2 border-l border-neutral-300 bg-yellow-50/50 rounded px-1">
@@ -443,7 +477,6 @@ const App: React.FC = () => {
                         ? AREA_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
                         : LENGTH_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
                       }
-                      {/* Note: Logic to swap unit list based on tool is handled in toggleTool state, here we render based on current state */}
                   </select>
               </div>
           </div>
@@ -530,43 +563,6 @@ const App: React.FC = () => {
               {/* Floating Tools Container */}
               <div className="absolute top-2 right-2 z-30 flex flex-col items-end pointer-events-none gap-2">
                   
-                  {/* Tool: Go To XY */}
-                  <div className="relative flex flex-col items-end">
-                      <button 
-                        onClick={() => { setShowGoToPanel(!showGoToPanel); setShowExcelPanel(false); }}
-                        className="pointer-events-auto w-10 h-10 bg-white rounded-lg shadow-md border border-neutral-300 hover:bg-neutral-50 flex items-center justify-center text-neutral-700 transition-colors"
-                        title="Go To XY"
-                      >
-                          <i className="fas fa-map-marker-alt text-lg text-red-600"></i>
-                      </button>
-                      {/* Go To Panel Content */}
-                      <div className={`pointer-events-auto mt-2 bg-white rounded-lg shadow-xl border border-neutral-300 p-3 w-64 transition-all duration-200 origin-top-right absolute top-full right-0 ${showGoToPanel ? 'scale-100 opacity-100' : 'scale-90 opacity-0 hidden'}`}>
-                          <div className="flex justify-between items-center mb-2 border-b border-neutral-100 pb-1">
-                              <span className="text-xs font-bold text-neutral-700">Aller à XY</span>
-                              <button onClick={() => setShowGoToPanel(false)} className="text-neutral-400 hover:text-neutral-600"><i className="fas fa-times"></i></button>
-                          </div>
-                          <div className="space-y-2">
-                              <div>
-                                  <label className="block text-[10px] text-neutral-500 mb-0.5">Projection</label>
-                                  <select value={selectedZone} onChange={(e) => setSelectedZone(e.target.value)} className="w-full text-xs border border-neutral-300 rounded p-1 bg-neutral-50 focus:outline-none focus:border-blue-400">
-                                     {ZONES.map(z => <option key={z.code} value={z.code}>{z.label}</option>)}
-                                  </select>
-                              </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                  <div>
-                                      <label className="block text-[10px] text-neutral-500 mb-0.5">X (Easting)</label>
-                                      <input type="text" value={manualX} onChange={(e) => setManualX(e.target.value)} className="w-full text-xs border border-neutral-300 rounded p-1 focus:outline-none focus:border-blue-400" placeholder="000000" />
-                                  </div>
-                                  <div>
-                                      <label className="block text-[10px] text-neutral-500 mb-0.5">Y (Northing)</label>
-                                      <input type="text" value={manualY} onChange={(e) => setManualY(e.target.value)} className="w-full text-xs border border-neutral-300 rounded p-1 focus:outline-none focus:border-blue-400" placeholder="000000" />
-                                  </div>
-                              </div>
-                              <button onClick={handleManualAddPoint} className="w-full bg-blue-600 text-white text-xs py-1.5 rounded hover:bg-blue-700 transition-colors flex items-center justify-center gap-1 font-medium"><i className="fas fa-location-arrow text-[10px]"></i> Localiser</button>
-                          </div>
-                      </div>
-                  </div>
-
                   {/* Tool: Excel Import */}
                   <div className="relative flex flex-col items-end">
                       <button 
@@ -683,10 +679,10 @@ const App: React.FC = () => {
       {/* --- 3. STATUS BAR --- */}
       <div className="bg-neutral-200 border-t border-neutral-300 h-6 flex items-center px-2 text-[10px] text-neutral-600 justify-between shrink-0 select-none">
           <div className="flex gap-6 items-center">
-              {/* Coordinates */}
+              {/* Coordinates (Degrees) */}
               <div className="flex gap-3 font-mono text-neutral-700">
-                  <span className="w-20 text-right">{mouseCoords.x} x</span>
-                  <span className="w-20 text-left">y {mouseCoords.y}</span>
+                  <span className="w-24 text-right">Lon: {mouseCoords.x}°</span>
+                  <span className="w-24 text-left">Lat: {mouseCoords.y}°</span>
               </div>
               
               <div className="flex items-center gap-1 border-l border-neutral-300 pl-4">

@@ -765,16 +765,9 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     map.on('pointermove', (evt) => {
         if (evt.dragging) return;
         const coords = toLonLat(evt.coordinate); // Get WGS84
-        try {
-            if (selectedZone && selectedZone !== 'EPSG:4326') {
-                 const projected = proj4('EPSG:4326', selectedZone, coords);
-                 if (onMouseMove) onMouseMove(projected[0].toFixed(2), projected[1].toFixed(2));
-            } else {
-                 if (onMouseMove) onMouseMove(coords[0].toFixed(6), coords[1].toFixed(6));
-            }
-        } catch(e) {
-             if (onMouseMove) onMouseMove(coords[0].toFixed(2), coords[1].toFixed(2));
-        }
+        
+        // Always return degrees (WGS84) as requested
+        if (onMouseMove) onMouseMove(coords[0].toFixed(6), coords[1].toFixed(6));
     });
 
     mapRef.current = map;
