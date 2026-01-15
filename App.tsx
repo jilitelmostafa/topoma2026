@@ -92,8 +92,8 @@ const App: React.FC = () => {
   const [showMeasureMenu, setShowMeasureMenu] = useState(false);
 
   // UI Layout State
-  const [tocOpen, setTocOpen] = useState(true); // Table of Contents (Left)
-  const [toolboxOpen, setToolboxOpen] = useState(false); // Export Tools (Right)
+  const [tocOpen, setTocOpen] = useState(true); // Table of Contents (Now Right)
+  const [toolboxOpen, setToolboxOpen] = useState(false); // Export Tools (Now Left)
   const [showGoToPanel, setShowGoToPanel] = useState(false); // Floating "Go To XY" Panel
   const [showExcelPanel, setShowExcelPanel] = useState(false); // Floating "Excel Import" Panel
   
@@ -158,32 +158,6 @@ const App: React.FC = () => {
       if (activeTool === 'MeasureLength' || activeTool === 'MeasureArea') {
           mapComponentRef.current?.setMeasureTool(activeTool, unit);
       }
-  };
-
-  // Track mouse move from MapComponent
-  const handleMouseMove = (coords: number[]) => {
-      // Coords come in as [lng, lat] (WGS84) from MapComponent callback
-      // We need to project them to the selected Zone to display X/Y in Lambert
-      // Or if MapComponent sends raw projected coords, we use them.
-      // Let's assume MapComponent sends [Lon, Lat].
-      
-      // Wait, projectFromZone converts FROM Lambert TO WGS84.
-      // We need WGS84 TO Lambert.
-      // Since we don't have the inverse function exposed easily without including proj4 fully in App,
-      // let's rely on MapComponent to send us the coordinates in the map's view projection (which is Web Mercator usually)
-      // OR better, let's just use the `projectFromZone` logic in reverse inside MapComponent, or keep it simple:
-      // We will ask MapComponent to give us WGS84, and we assume we display WGS84 unless we add a specific library here.
-      
-      // Actually, for professional GIS, users want to see the coordinates in the SELECTED ZONE.
-      // MapComponent already imports geoService. Let's make MapComponent do the heavy lifting of formatting 
-      // based on the selected zone code passed to it.
-      
-      // For now, let's assume `coords` passed up are already formatted or we format them here.
-      // Ideally, MapComponent passes [x, y] in the current projection if we set the projection there.
-      // But OpenLayers view is usually Mercator.
-      
-      // Let's use the provided `projectFromZone` in reverse? No, that file only does Zone -> WGS84.
-      // We will implement `handleMouseMove` to receive formatted strings from MapComponent directly.
   };
 
   const handleFileClick = (ref: React.RefObject<HTMLInputElement>) => {
@@ -399,6 +373,14 @@ const App: React.FC = () => {
       {/* --- 1. MAIN TOOLBAR (Compact) --- */}
       <div className="bg-neutral-100 border-b border-neutral-300 p-1 flex items-center gap-1 shadow-sm shrink-0 h-10">
           
+          {/* LEFT: ArcToolbox Toggle (Moved Here) */}
+          <button 
+            onClick={() => setToolboxOpen(!toolboxOpen)}
+            className={`h-8 px-3 flex items-center gap-2 rounded border mr-2 ${toolboxOpen ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`}
+          >
+              <i className="fas fa-tools text-red-700"></i> <span className="text-xs font-bold hidden md:inline">ArcToolbox</span>
+          </button>
+
           {/* File Operations */}
           <div className="flex items-center px-2 border-r border-neutral-300 gap-1">
               <button onClick={resetAll} className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300" title="Nouveau Projet">
@@ -452,7 +434,7 @@ const App: React.FC = () => {
               )}
           </div>
 
-          {/* Panels Toggle */}
+          {/* RIGHT: Table of Contents Toggle */}
           <div className="flex items-center px-2 gap-1 ml-auto">
                <button 
                 onClick={() => setTocOpen(!tocOpen)}
@@ -460,52 +442,72 @@ const App: React.FC = () => {
                >
                    <i className="fas fa-list"></i> <span className="text-xs font-bold hidden md:inline">Table of Contents</span>
                </button>
-               <button 
-                onClick={() => setToolboxOpen(!toolboxOpen)}
-                className={`h-8 px-3 flex items-center gap-2 rounded border ${toolboxOpen ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`}
-               >
-                   <i className="fas fa-tools text-red-700"></i> <span className="text-xs font-bold hidden md:inline">ArcToolbox</span>
-               </button>
           </div>
       </div>
 
       {/* --- 2. MAIN WORKSPACE --- */}
       <div className="flex-grow flex relative overflow-hidden">
           
-          {/* LEFT PANEL: TABLE OF CONTENTS */}
-          <div className={`${tocOpen ? 'w-64 md:w-72 translate-x-0' : 'w-0 -translate-x-full opacity-0'} transition-all duration-300 bg-white border-r border-neutral-300 flex flex-col shrink-0 overflow-hidden absolute md:static z-20 h-full shadow-lg md:shadow-none`}>
-              <div className="bg-neutral-100 p-2 border-b border-neutral-300 font-bold text-xs text-neutral-700 flex justify-between items-center">
-                  <span>Layers</span>
-                  <button onClick={() => setTocOpen(false)} className="md:hidden text-neutral-500"><i className="fas fa-times"></i></button>
+          {/* LEFT PANEL: ARCTOOLBOX (Export) - Was Right */}
+          <div className={`${toolboxOpen ? 'w-72 translate-x-0' : 'w-0 -translate-x-full opacity-0'} transition-all duration-300 bg-white border-r border-neutral-300 flex flex-col shrink-0 overflow-hidden absolute left-0 top-0 h-full z-20 shadow-lg md:shadow-none`}>
+               <div className="bg-neutral-100 p-2 border-b border-neutral-300 font-bold text-xs text-red-800 flex justify-between items-center">
+                  <span><i className="fas fa-tools mr-1"></i> ArcToolbox</span>
+                  <button onClick={() => setToolboxOpen(false)} className="text-neutral-500 hover:text-red-600"><i className="fas fa-times"></i></button>
               </div>
-              <div className="flex-grow overflow-y-auto p-2">
-                  <div className="text-xs select-none">
-                      <div className="flex items-center gap-1 mb-1 font-bold text-neutral-800">
-                           <i className="fas fa-layer-group text-yellow-600"></i> <span>Layers</span>
-                      </div>
-                      <div className="ml-4 border-l border-neutral-300 pl-2 space-y-2">
-                          <div>
-                              <div className="flex items-center gap-2">
-                                  <input type="checkbox" checked={mapType === 'satellite'} onChange={() => setMapType('satellite')} className="cursor-pointer" />
-                                  <span className="text-neutral-700">Imagery (Satellite)</span>
-                              </div>
-                              <div className="flex items-center gap-2 mt-1">
-                                  <input type="checkbox" checked={mapType === 'hybrid'} onChange={() => setMapType('hybrid')} className="cursor-pointer" />
-                                  <span className="text-neutral-700">Hybrid Labels</span>
-                              </div>
-                          </div>
-                          {loadedFiles.map((file, idx) => (
-                              <div key={idx} className="flex items-center gap-2">
-                                  <input type="checkbox" checked readOnly className="cursor-pointer accent-blue-600" />
-                                  <span className="truncate" title={file}>{file}</span>
-                              </div>
-                          ))}
-                      </div>
-                  </div>
-              </div>
-              <div className="bg-neutral-50 p-1 border-t border-neutral-300 text-[10px] flex justify-between text-neutral-500">
-                  <span>List By Drawing Order</span>
-                  <i className="fas fa-sort-amount-down"></i>
+              
+              <div className="flex-grow overflow-y-auto p-3 bg-neutral-50">
+                   <div className="border border-neutral-300 bg-white mb-2 shadow-sm rounded-sm">
+                       <div className="bg-neutral-200 px-2 py-1.5 text-xs font-bold border-b border-neutral-300 flex items-center gap-2 text-neutral-700">
+                           <i className="fas fa-hammer text-neutral-500"></i> Clip Raster (GeoTIFF)
+                       </div>
+                       <div className="p-3 text-xs space-y-4">
+                           <div>
+                               <label className="block text-neutral-600 mb-1.5 font-medium">Output Scale / Resolution:</label>
+                               <div className="relative">
+                                   <select 
+                                      value={selectedScale}
+                                      onChange={(e) => handleScaleChange(Number(e.target.value))}
+                                      className="w-full border border-neutral-300 p-1.5 rounded bg-white text-neutral-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 appearance-none"
+                                   >
+                                      {EXPORT_SCALES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                                   </select>
+                                   <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-neutral-600">
+                                       <i className="fas fa-chevron-down text-[10px]"></i>
+                                   </div>
+                               </div>
+                           </div>
+
+                           <div className="border border-neutral-200 p-3 bg-neutral-50 h-32 flex flex-col items-center justify-center text-center rounded">
+                               {step === 'IDLE' && <span className="text-neutral-400 italic">Select area on map...</span>}
+                               
+                               {step === 'SELECTED' && exportData && (
+                                   <>
+                                     <div className="text-green-600 font-bold mb-2 flex items-center gap-1"><i className="fas fa-check-circle"></i> Geometry Defined</div>
+                                     <button onClick={startClipping} className="bg-neutral-100 border border-neutral-300 px-4 py-1.5 rounded hover:bg-white hover:border-blue-400 hover:text-blue-600 shadow-sm transition-all font-medium">
+                                         OK (Run)
+                                     </button>
+                                   </>
+                               )}
+
+                               {step === 'PROCESSING' && (
+                                   <div className="flex flex-col items-center text-blue-600">
+                                     <i className="fas fa-cog fa-spin text-2xl mb-2"></i>
+                                     <span>Processing... {countdown}</span>
+                                   </div>
+                               )}
+
+                               {step === 'DONE' && (
+                                   <button onClick={downloadFile} className="bg-green-50 border border-green-500 text-green-700 px-3 py-1.5 rounded hover:bg-green-100 flex items-center gap-2 font-medium">
+                                       <i className="fas fa-download"></i> Save Result
+                                   </button>
+                               )}
+                           </div>
+                       </div>
+                   </div>
+
+                   <div className="text-[10px] text-neutral-400 text-center mt-6 leading-tight">
+                       GeoMapper Pro v1.3 <br/> Compatible with ArcGIS / QGIS
+                   </div>
               </div>
           </div>
 
@@ -644,66 +646,40 @@ const App: React.FC = () => {
               />
           </div>
 
-          {/* RIGHT PANEL: ARCTOOLBOX (Export) */}
-          <div className={`${toolboxOpen ? 'w-72 translate-x-0' : 'w-0 translate-x-full opacity-0'} transition-all duration-300 bg-white border-l border-neutral-300 flex flex-col shrink-0 overflow-hidden absolute right-0 top-0 h-full z-20 shadow-lg md:shadow-none`}>
-               <div className="bg-neutral-100 p-2 border-b border-neutral-300 font-bold text-xs text-red-800 flex justify-between items-center">
-                  <span><i className="fas fa-tools mr-1"></i> ArcToolbox</span>
-                  <button onClick={() => setToolboxOpen(false)} className="text-neutral-500 hover:text-red-600"><i className="fas fa-times"></i></button>
+          {/* RIGHT PANEL: TABLE OF CONTENTS (Was Left) */}
+          <div className={`${tocOpen ? 'w-64 md:w-72 translate-x-0' : 'w-0 translate-x-full opacity-0'} transition-all duration-300 bg-white border-l border-neutral-300 flex flex-col shrink-0 overflow-hidden absolute right-0 md:static z-20 h-full shadow-lg md:shadow-none order-last`}>
+              <div className="bg-neutral-100 p-2 border-b border-neutral-300 font-bold text-xs text-neutral-700 flex justify-between items-center">
+                  <span>Layers</span>
+                  <button onClick={() => setTocOpen(false)} className="md:hidden text-neutral-500"><i className="fas fa-times"></i></button>
               </div>
-              
-              <div className="flex-grow overflow-y-auto p-3 bg-neutral-50">
-                   <div className="border border-neutral-300 bg-white mb-2 shadow-sm rounded-sm">
-                       <div className="bg-neutral-200 px-2 py-1.5 text-xs font-bold border-b border-neutral-300 flex items-center gap-2 text-neutral-700">
-                           <i className="fas fa-hammer text-neutral-500"></i> Clip Raster (GeoTIFF)
-                       </div>
-                       <div className="p-3 text-xs space-y-4">
-                           <div>
-                               <label className="block text-neutral-600 mb-1.5 font-medium">Output Scale / Resolution:</label>
-                               <div className="relative">
-                                   <select 
-                                      value={selectedScale}
-                                      onChange={(e) => handleScaleChange(Number(e.target.value))}
-                                      className="w-full border border-neutral-300 p-1.5 rounded bg-white text-neutral-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 appearance-none"
-                                   >
-                                      {EXPORT_SCALES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                                   </select>
-                                   <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-neutral-600">
-                                       <i className="fas fa-chevron-down text-[10px]"></i>
-                                   </div>
-                               </div>
-                           </div>
-
-                           <div className="border border-neutral-200 p-3 bg-neutral-50 h-32 flex flex-col items-center justify-center text-center rounded">
-                               {step === 'IDLE' && <span className="text-neutral-400 italic">Select area on map...</span>}
-                               
-                               {step === 'SELECTED' && exportData && (
-                                   <>
-                                     <div className="text-green-600 font-bold mb-2 flex items-center gap-1"><i className="fas fa-check-circle"></i> Geometry Defined</div>
-                                     <button onClick={startClipping} className="bg-neutral-100 border border-neutral-300 px-4 py-1.5 rounded hover:bg-white hover:border-blue-400 hover:text-blue-600 shadow-sm transition-all font-medium">
-                                         OK (Run)
-                                     </button>
-                                   </>
-                               )}
-
-                               {step === 'PROCESSING' && (
-                                   <div className="flex flex-col items-center text-blue-600">
-                                     <i className="fas fa-cog fa-spin text-2xl mb-2"></i>
-                                     <span>Processing... {countdown}</span>
-                                   </div>
-                               )}
-
-                               {step === 'DONE' && (
-                                   <button onClick={downloadFile} className="bg-green-50 border border-green-500 text-green-700 px-3 py-1.5 rounded hover:bg-green-100 flex items-center gap-2 font-medium">
-                                       <i className="fas fa-download"></i> Save Result
-                                   </button>
-                               )}
-                           </div>
-                       </div>
-                   </div>
-
-                   <div className="text-[10px] text-neutral-400 text-center mt-6 leading-tight">
-                       GeoMapper Pro v1.3 <br/> Compatible with ArcGIS / QGIS
-                   </div>
+              <div className="flex-grow overflow-y-auto p-2">
+                  <div className="text-xs select-none">
+                      <div className="flex items-center gap-1 mb-1 font-bold text-neutral-800">
+                           <i className="fas fa-layer-group text-yellow-600"></i> <span>Layers</span>
+                      </div>
+                      <div className="ml-4 border-l border-neutral-300 pl-2 space-y-2">
+                          <div>
+                              <div className="flex items-center gap-2">
+                                  <input type="checkbox" checked={mapType === 'satellite'} onChange={() => setMapType('satellite')} className="cursor-pointer" />
+                                  <span className="text-neutral-700">Imagery (Satellite)</span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                  <input type="checkbox" checked={mapType === 'hybrid'} onChange={() => setMapType('hybrid')} className="cursor-pointer" />
+                                  <span className="text-neutral-700">Hybrid Labels</span>
+                              </div>
+                          </div>
+                          {loadedFiles.map((file, idx) => (
+                              <div key={idx} className="flex items-center gap-2">
+                                  <input type="checkbox" checked readOnly className="cursor-pointer accent-blue-600" />
+                                  <span className="truncate" title={file}>{file}</span>
+                              </div>
+                          ))}
+                      </div>
+                  </div>
+              </div>
+              <div className="bg-neutral-50 p-1 border-t border-neutral-300 text-[10px] flex justify-between text-neutral-500">
+                  <span>List By Drawing Order</span>
+                  <i className="fas fa-sort-amount-down"></i>
               </div>
           </div>
 
