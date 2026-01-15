@@ -39,7 +39,8 @@ const App: React.FC = () => {
   const [mapType, setMapType] = useState<MapType>('satellite');
   
   const mapComponentRef = useRef<MapComponentRef>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const kmlInputRef = useRef<HTMLInputElement>(null);
+  const shpInputRef = useRef<HTMLInputElement>(null);
 
   const handleScaleChange = (newScale: number) => {
     setSelectedScale(newScale);
@@ -63,6 +64,15 @@ const App: React.FC = () => {
       setActiveTool(null);
       mapComponentRef.current.setDrawTool(null);
       mapComponentRef.current.loadKML(file);
+    }
+  };
+
+  const handleShapefileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && mapComponentRef.current) {
+      setActiveTool(null);
+      mapComponentRef.current.setDrawTool(null);
+      mapComponentRef.current.loadShapefile(file);
     }
   };
 
@@ -191,15 +201,28 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* KML Upload */}
-          <div className="pt-2">
-            <input type="file" accept=".kml" className="hidden" ref={fileInputRef} onChange={handleKMLUpload} />
+          {/* File Uploads (KML & SHP) */}
+          <div className="space-y-3 pt-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Importation</label>
+            
+            {/* KML */}
+            <input type="file" accept=".kml" className="hidden" ref={kmlInputRef} onChange={handleKMLUpload} />
             <button 
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-5 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
+              onClick={() => kmlInputRef.current?.click()}
+              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
             >
-              <i className="fas fa-file-import text-lg text-amber-500"></i>
+              <i className="fas fa-file-code text-lg text-amber-500"></i>
               <span>Importer fichier KML</span>
+            </button>
+
+            {/* SHP (ZIP) */}
+            <input type="file" accept=".zip" className="hidden" ref={shpInputRef} onChange={handleShapefileUpload} />
+            <button 
+              onClick={() => shpInputRef.current?.click()}
+              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
+            >
+              <i className="fas fa-file-archive text-lg text-green-500"></i>
+              <span>Importer Shapefile (ZIP)</span>
             </button>
           </div>
 

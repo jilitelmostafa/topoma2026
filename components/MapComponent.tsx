@@ -10,9 +10,13 @@ import Draw, { createBox } from 'ol/interaction/Draw';
 import { Style, Stroke, Fill } from 'ol/style';
 import { ScaleLine, Zoom } from 'ol/control';
 import KML from 'ol/format/KML';
+import GeoJSON from 'ol/format/GeoJSON';
 import Polygon from 'ol/geom/Polygon';
 import MultiPolygon from 'ol/geom/MultiPolygon';
 import { convertToWGS84, calculateScale, getResolutionFromScale } from '../services/geoService';
+
+// تعريف مكتبة shpjs العالمية
+declare const shp: any;
 
 interface MapComponentProps {
   onSelectionComplete: (data: { lat: string, lng: string, scale: string, bounds: number[] }) => void;
@@ -22,6 +26,7 @@ interface MapComponentProps {
 export interface MapComponentRef {
   getMapCanvas: (targetScale?: number) => Promise<{ canvas: HTMLCanvasElement, extent: number[] } | null>;
   loadKML: (file: File) => void;
+  loadShapefile: (file: File) => void;
   setDrawTool: (type: 'Rectangle' | 'Polygon' | null) => void;
   clearAll: () => void;
   setMapScale: (scale: number) => void;
@@ -81,6 +86,54 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         }
       };
       reader.readAsText(file);
+    },
+    loadShapefile: (file: File) => {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        if (e.target?.result) {
+          try {
+            // shpjs يحول ملف zip (buffer) إلى GeoJSON
+            // قد يرجع مصفوفة إذا كان هناك عدة طبقات، أو كائن واحد
+            const geojson = await shp(e.target.result);
+            
+            const format = new GeoJSON();
+            let features: any[] = [];
+
+            if (Array.isArray(geojson)) {
+               geojson.forEach(g => {
+                   const f = format.readFeatures(g, {
+                       featureProjection: 'EPSG:3857',
+                       dataProjection: 'EPSG:4326' // shpjs يخرج عادة WGS84
+                   });
+                   features = features.concat(f);
+               });
+            } else {
+               features = format.readFeatures(geojson, {
+                   featureProjection: 'EPSG:3857',
+                   dataProjection: 'EPSG:4326'
+               });
+            }
+
+            kmlSourceRef.current.clear();
+            sourceRef.current.clear();
+            kmlSourceRef.current.addFeatures(features);
+
+            if (features.length > 0 && mapRef.current) {
+              const extent = kmlSourceRef.current.getExtent();
+              mapRef.current.getView().fit(extent, { padding: [50, 50, 50, 50], duration: 800 });
+              const center = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
+              const wgs = convertToWGS84(center[0], center[1]);
+              const currentRes = mapRef.current.getView().getResolution() || 1;
+              const scale = calculateScale(currentRes, parseFloat(wgs.lat));
+              onSelectionComplete({ lat: wgs.lat, lng: wgs.lng, scale: scale, bounds: extent });
+            }
+          } catch (error) {
+            console.error("Error parsing shapefile:", error);
+            alert("Erreur lors de la lecture du fichier Shapefile (ZIP). Assurez-vous qu'il contient .shp, .shx et .dbf.");
+          }
+        }
+      };
+      reader.readAsArrayBuffer(file);
     },
     setDrawTool: (type) => {
       if (!mapRef.current) return;
