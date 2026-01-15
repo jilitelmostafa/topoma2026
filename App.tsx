@@ -11,6 +11,9 @@ interface ExportData {
   lng: string;
   scale: string;
   bounds: number[];
+  area?: string;
+  perimeter?: string;
+  projection?: string;
 }
 
 type WorkflowStep = 'IDLE' | 'SELECTED' | 'PROCESSING' | 'DONE';
@@ -89,6 +92,7 @@ const App: React.FC = () => {
   
   // Measurement State
   const [measureUnit, setMeasureUnit] = useState<string>('m');
+  const [showMobileMeasureMenu, setShowMobileMeasureMenu] = useState(false); // Mobile Only
 
   // UI Layout State
   const [tocOpen, setTocOpen] = useState(true); // Table of Contents (Right)
@@ -371,7 +375,7 @@ const App: React.FC = () => {
       {/* --- 1. MAIN TOOLBAR (Compact) --- */}
       <div className="bg-neutral-100 border-b border-neutral-300 p-1 flex items-center gap-1 shadow-sm shrink-0 h-10">
           
-          {/* LEFT: GeoTIFF Toggle (Was ArcToolbox) */}
+          {/* LEFT: GeoTIFF Toggle */}
           <button 
             onClick={() => setToolboxOpen(!toolboxOpen)}
             className={`h-8 px-3 flex items-center gap-2 rounded border mr-2 ${toolboxOpen ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`}
@@ -409,7 +413,7 @@ const App: React.FC = () => {
                   <i className="fas fa-hand-paper text-neutral-700"></i>
               </button>
               
-              {/* Go To XY Tool (Replaces Zoom Buttons) */}
+              {/* Go To XY Tool */}
               <div className="relative">
                   <button 
                     onClick={() => { setShowGoToPanel(!showGoToPanel); setShowExcelPanel(false); }}
@@ -418,8 +422,6 @@ const App: React.FC = () => {
                   >
                       <i className="fas fa-map-marker-alt text-red-600 mr-1"></i> <span className="text-xs font-bold text-neutral-700">Go To XY</span>
                   </button>
-                  
-                  {/* Dropdown Panel for Go To XY */}
                   {showGoToPanel && (
                       <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-xl border border-neutral-300 p-3 w-64 z-50">
                           <div className="flex justify-between items-center mb-2 border-b border-neutral-100 pb-1">
@@ -449,8 +451,8 @@ const App: React.FC = () => {
                   )}
                </div>
 
-              {/* Measurement Section (Dark Yellow Rulers) */}
-              <div className="flex items-center gap-1 ml-2 pl-2 border-l border-neutral-300 bg-yellow-50/50 rounded px-1">
+              {/* Measurement Section - DESKTOP (Hidden on Mobile) */}
+              <div className="hidden md:flex items-center gap-1 ml-2 pl-2 border-l border-neutral-300 bg-yellow-50/50 rounded px-1">
                   <button 
                     onClick={() => toggleTool('MeasureLength')} 
                     className={`w-8 h-8 flex items-center justify-center rounded border transition-colors ${activeTool === 'MeasureLength' ? 'bg-yellow-200 border-yellow-400' : 'hover:bg-yellow-100 border-transparent'}`} 
@@ -466,28 +468,76 @@ const App: React.FC = () => {
                       <i className="fas fa-ruler-combined text-yellow-700"></i>
                   </button>
                   
-                  {/* Integrated Unit Selector */}
                   <select 
                       value={measureUnit}
                       onChange={(e) => handleUnitChange(e.target.value)}
                       className="h-6 text-xs border border-yellow-300 rounded px-1 bg-white focus:outline-none ml-1 text-neutral-700"
                       title="Unités de mesure"
                   >
-                      {(activeTool === 'MeasureArea' || (!activeTool && measureUnit.includes('sq'))) // Simple check to show area units if last used or default
+                      {(activeTool === 'MeasureArea' || (!activeTool && measureUnit.includes('sq')))
                         ? AREA_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
                         : LENGTH_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
                       }
                   </select>
               </div>
+
+              {/* Measurement Section - MOBILE (Single Icon with Dropdown) */}
+              <div className="md:hidden relative ml-1">
+                  <button 
+                    onClick={() => { setShowMobileMeasureMenu(!showMobileMeasureMenu); setShowGoToPanel(false); }}
+                    className={`h-8 px-2 flex items-center justify-center rounded border transition-colors bg-yellow-50/50 ${(activeTool === 'MeasureLength' || activeTool === 'MeasureArea' || showMobileMeasureMenu) ? 'bg-yellow-200 border-yellow-400' : 'hover:bg-yellow-100 border-transparent'}`}
+                    title="Mesures"
+                  >
+                       <i className="fas fa-ruler-combined text-yellow-700 text-lg"></i>
+                  </button>
+                  {showMobileMeasureMenu && (
+                      <div className="absolute top-full left-0 mt-1 bg-white rounded-lg shadow-xl border border-neutral-300 p-2 w-48 z-50">
+                          <div className="flex justify-between items-center mb-2 border-b border-neutral-100 pb-1">
+                              <span className="text-xs font-bold text-neutral-700">Outils de mesure</span>
+                              <button onClick={() => setShowMobileMeasureMenu(false)} className="text-neutral-400 hover:text-neutral-600"><i className="fas fa-times"></i></button>
+                          </div>
+                          <div className="space-y-2">
+                             <button onClick={() => toggleTool('MeasureLength')} className={`w-full text-left px-2 py-1.5 text-xs rounded flex items-center gap-2 ${activeTool === 'MeasureLength' ? 'bg-yellow-100 text-yellow-800 font-bold' : 'hover:bg-neutral-50 text-neutral-700'}`}>
+                                 <i className="fas fa-ruler w-5 text-center"></i> Distance
+                             </button>
+                             <button onClick={() => toggleTool('MeasureArea')} className={`w-full text-left px-2 py-1.5 text-xs rounded flex items-center gap-2 ${activeTool === 'MeasureArea' ? 'bg-yellow-100 text-yellow-800 font-bold' : 'hover:bg-neutral-50 text-neutral-700'}`}>
+                                 <i className="fas fa-ruler-combined w-5 text-center"></i> Surface
+                             </button>
+                             <div className="border-t border-neutral-200 pt-2 mt-1">
+                                 <label className="block text-[10px] text-neutral-500 mb-1">Unités:</label>
+                                 <select 
+                                      value={measureUnit}
+                                      onChange={(e) => handleUnitChange(e.target.value)}
+                                      className="w-full h-7 text-xs border border-neutral-300 rounded px-1 bg-neutral-50"
+                                  >
+                                      {/* Show all units in mobile dropdown or context aware */}
+                                      {LENGTH_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
+                                      {AREA_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
+                                  </select>
+                             </div>
+                          </div>
+                      </div>
+                  )}
+              </div>
           </div>
 
-          {/* RIGHT: Table of Contents Toggle */}
+          {/* RIGHT: Table of Contents Toggle (Desktop) & Map Layer Switch (Mobile) */}
           <div className="flex items-center px-2 gap-1 ml-auto">
+               {/* Desktop TOC Button */}
                <button 
                 onClick={() => setTocOpen(!tocOpen)}
-                className={`h-8 px-3 flex items-center gap-2 rounded border ${tocOpen ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`}
+                className={`hidden md:flex h-8 px-3 items-center gap-2 rounded border ${tocOpen ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`}
                >
-                   <i className="fas fa-list"></i> <span className="text-xs font-bold hidden md:inline">Table of Contents</span>
+                   <i className="fas fa-list"></i> <span className="text-xs font-bold">Table of Contents</span>
+               </button>
+
+               {/* Mobile Layer Switcher (Simple Toggle) */}
+               <button 
+                  onClick={() => setMapType(prev => prev === 'satellite' ? 'hybrid' : 'satellite')}
+                  className="md:hidden h-8 w-8 flex items-center justify-center rounded border border-neutral-300 bg-white hover:bg-neutral-100 text-neutral-700 shadow-sm"
+                  title="Switch Map Layer"
+               >
+                   <i className={`fas ${mapType === 'satellite' ? 'fa-globe-americas' : 'fa-map'}`}></i>
                </button>
           </div>
       </div>
@@ -496,7 +546,7 @@ const App: React.FC = () => {
       <div className="flex-grow flex relative overflow-hidden">
           
           {/* LEFT PANEL: Export Tools (GeoTIFF) */}
-          <div className={`${toolboxOpen ? 'w-72 translate-x-0' : 'w-0 -translate-x-full opacity-0'} transition-all duration-300 bg-white border-r border-neutral-300 flex flex-col shrink-0 overflow-hidden absolute left-0 top-0 h-full z-20 shadow-lg md:shadow-none`}>
+          <div className={`${toolboxOpen ? 'w-80 translate-x-0' : 'w-0 -translate-x-full opacity-0'} transition-all duration-300 bg-white border-r border-neutral-300 flex flex-col shrink-0 overflow-hidden absolute left-0 top-0 h-full z-20 shadow-lg md:shadow-none`}>
                <div className="bg-neutral-100 p-2 border-b border-neutral-300 font-bold text-xs text-green-800 flex justify-between items-center">
                   <span><i className="fas fa-file-image mr-1"></i> Export GeoTIFF</span>
                   <button onClick={() => setToolboxOpen(false)} className="text-neutral-500 hover:text-green-600"><i className="fas fa-times"></i></button>
@@ -508,6 +558,36 @@ const App: React.FC = () => {
                            <i className="fas fa-crop-alt text-neutral-500"></i> Clip Raster
                        </div>
                        <div className="p-3 text-xs space-y-4">
+                           
+                           {/* --- INFO PANEL FOR SELECTED GEOMETRY --- */}
+                           {step === 'SELECTED' && exportData && (
+                               <div className="bg-blue-50 border border-blue-200 rounded p-2 text-[11px] text-blue-900 space-y-1">
+                                   <div className="font-bold flex items-center gap-1 border-b border-blue-200 pb-1 mb-1">
+                                       <i className="fas fa-info-circle"></i> Info Élément
+                                   </div>
+                                   <div className="flex justify-between">
+                                       <span className="text-blue-700">Zone:</span>
+                                       <span className="font-mono">{ZONES.find(z => z.code === selectedZone)?.label || 'WGS84'}</span>
+                                   </div>
+                                   {exportData.area && (
+                                       <div className="flex justify-between">
+                                            <span className="text-blue-700">Area:</span>
+                                            <span className="font-mono font-bold">{exportData.area}</span>
+                                       </div>
+                                   )}
+                                   {exportData.perimeter && (
+                                       <div className="flex justify-between">
+                                            <span className="text-blue-700">Perim:</span>
+                                            <span className="font-mono">{exportData.perimeter}</span>
+                                       </div>
+                                   )}
+                                   <div className="flex justify-between">
+                                       <span className="text-blue-700">Bounds:</span>
+                                       <span className="font-mono truncate w-24 text-right" title={exportData.bounds.join(', ')}>Defined</span>
+                                   </div>
+                               </div>
+                           )}
+
                            <div>
                                <label className="block text-neutral-600 mb-1.5 font-medium">Output Scale / Resolution:</label>
                                <div className="relative">
@@ -524,29 +604,41 @@ const App: React.FC = () => {
                                </div>
                            </div>
 
-                           <div className="border border-neutral-200 p-3 bg-neutral-50 h-32 flex flex-col items-center justify-center text-center rounded">
+                           <div className="border border-neutral-200 p-3 bg-neutral-50 h-40 flex flex-col items-center justify-center text-center rounded relative overflow-hidden">
                                {step === 'IDLE' && <span className="text-neutral-400 italic">Select area on map...</span>}
                                
                                {step === 'SELECTED' && exportData && (
                                    <>
-                                     <div className="text-green-600 font-bold mb-2 flex items-center gap-1"><i className="fas fa-check-circle"></i> Geometry Defined</div>
-                                     <button onClick={startClipping} className="bg-neutral-100 border border-neutral-300 px-4 py-1.5 rounded hover:bg-white hover:border-blue-400 hover:text-blue-600 shadow-sm transition-all font-medium">
-                                         OK (Run)
+                                     <div className="text-green-600 font-bold mb-3 flex items-center gap-1"><i className="fas fa-check-circle"></i> Ready to Export</div>
+                                     <button onClick={startClipping} className="bg-blue-600 border border-blue-700 text-white px-6 py-2 rounded hover:bg-blue-700 shadow-md transition-all font-bold flex items-center gap-2">
+                                         <i className="fas fa-play text-[10px]"></i> GENERATE
                                      </button>
                                    </>
                                )}
 
                                {step === 'PROCESSING' && (
-                                   <div className="flex flex-col items-center text-blue-600">
-                                     <i className="fas fa-cog fa-spin text-2xl mb-2"></i>
-                                     <span>Processing... {countdown}</span>
+                                   <div className="flex flex-col items-center justify-center w-full h-full">
+                                      <div className="relative w-16 h-16 mb-2">
+                                          {/* Visual Raster Formation Effect */}
+                                          <div className="absolute inset-0 border-4 border-t-blue-500 border-r-transparent border-b-blue-500 border-l-transparent rounded-full animate-spin"></div>
+                                          <div className="absolute inset-0 flex items-center justify-center">
+                                              <i className="fas fa-layer-group text-blue-400 text-2xl animate-pulse"></i>
+                                          </div>
+                                      </div>
+                                     <span className="text-blue-700 font-bold text-xs animate-pulse">Building Raster... {countdown}%</span>
+                                     <div className="w-full bg-neutral-200 h-1.5 mt-2 rounded-full overflow-hidden">
+                                         <div className="bg-blue-500 h-full transition-all duration-1000 ease-linear" style={{width: `${(5-countdown)*20}%`}}></div>
+                                     </div>
                                    </div>
                                )}
 
                                {step === 'DONE' && (
-                                   <button onClick={downloadFile} className="bg-green-50 border border-green-500 text-green-700 px-3 py-1.5 rounded hover:bg-green-100 flex items-center gap-2 font-medium">
-                                       <i className="fas fa-download"></i> Save Result
-                                   </button>
+                                   <div className="flex flex-col items-center animate-bounce-in">
+                                       <div className="text-green-600 font-bold mb-2">Success!</div>
+                                       <button onClick={downloadFile} className="bg-green-600 border border-green-700 text-white px-4 py-2 rounded hover:bg-green-700 flex items-center gap-2 font-bold shadow-md">
+                                           <i className="fas fa-download"></i> Download TIF
+                                       </button>
+                                   </div>
                                )}
                            </div>
                        </div>
@@ -629,7 +721,7 @@ const App: React.FC = () => {
                 selectedZone={selectedZone}
                 onMouseMove={(x, y) => setMouseCoords({x, y})}
                 onSelectionComplete={(data) => {
-                  setExportData(data);
+                  setExportData({ ...data, projection: selectedZone }); // Include projection
                   setStep('SELECTED');
                   setActiveTool(null);
                   setToolboxOpen(true);
@@ -637,8 +729,8 @@ const App: React.FC = () => {
               />
           </div>
 
-          {/* RIGHT PANEL: TABLE OF CONTENTS */}
-          <div className={`${tocOpen ? 'w-64 md:w-72 translate-x-0' : 'w-0 translate-x-full opacity-0'} transition-all duration-300 bg-white border-l border-neutral-300 flex flex-col shrink-0 overflow-hidden absolute right-0 md:static z-20 h-full shadow-lg md:shadow-none order-last`}>
+          {/* RIGHT PANEL: TABLE OF CONTENTS (Desktop Only) */}
+          <div className={`${tocOpen ? 'w-64 md:w-72 translate-x-0' : 'w-0 translate-x-full opacity-0'} hidden md:flex transition-all duration-300 bg-white border-l border-neutral-300 flex-col shrink-0 overflow-hidden absolute right-0 md:static z-20 h-full shadow-lg md:shadow-none order-last`}>
               <div className="bg-neutral-100 p-2 border-b border-neutral-300 font-bold text-xs text-neutral-700 flex justify-between items-center">
                   <span>Layers</span>
                   <button onClick={() => setTocOpen(false)} className="md:hidden text-neutral-500"><i className="fas fa-times"></i></button>

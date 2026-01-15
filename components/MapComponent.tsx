@@ -18,7 +18,7 @@ import MultiPolygon from 'ol/geom/MultiPolygon';
 import LineString from 'ol/geom/LineString';
 import Point from 'ol/geom/Point';
 import Feature from 'ol/Feature';
-import proj4 from 'proj4'; // Import directly to handle transforms inside
+import proj4 from 'proj4'; 
 import { convertToWGS84, calculateScale, getResolutionFromScale, projectFromZone, formatArea } from '../services/geoService';
 import { unByKey } from 'ol/Observable';
 
@@ -26,8 +26,18 @@ import { unByKey } from 'ol/Observable';
 declare const shp: any;
 declare const JSZip: any;
 
+interface SelectionData {
+    lat: string;
+    lng: string;
+    scale: string;
+    bounds: number[];
+    area?: string;      // Formatted Area
+    perimeter?: string; // Formatted Perimeter
+    projection?: string;
+}
+
 interface MapComponentProps {
-  onSelectionComplete: (data: { lat: string, lng: string, scale: string, bounds: number[] }) => void;
+  onSelectionComplete: (data: SelectionData) => void;
   onMouseMove?: (x: string, y: string) => void;
   selectedZone: string;
   mapType: 'satellite' | 'hybrid';
@@ -71,8 +81,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
   const pointerMoveListenerRef = useRef<any>(null);
   const currentMeasureUnitRef = useRef<string>('m');
 
-  // Store measurement features to update them dynamically
-  // We store: { featureId: string, overlay: Overlay, geometry: Geometry }
+  // Store measurement features
   const activeMeasurementsRef = useRef<Array<{ feature: Feature, overlay: Overlay, type: 'Length' | 'Area' }>>([]);
 
   // Styles
@@ -81,7 +90,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     stroke: new Stroke({ color: '#ff0000', width: 3 }),
   });
 
-  // Style for COMPLETED measurements (Blue)
   const measureStyle = new Style({
     fill: new Fill({ color: 'rgba(255, 255, 255, 0.2)' }),
     stroke: new Stroke({ color: '#3b82f6', width: 2, lineDash: [10, 10] }),
@@ -109,8 +117,9 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     });
   };
 
-  // Helper formatting functions
-  const formatLength = (line: LineString, unit: string) => {
+  // Helper: Format Length
+  const formatLength = (line: LineString | Polygon, unit: string) => {
+    // Note: OpenLayers getLength on Polygon returns perimeter
     const length = getLength(line);
     let output;
     if (unit === 'km') {
@@ -201,13 +210,11 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     },
     updateMeasureUnit: (unit) => {
         currentMeasureUnitRef.current = unit;
-        // Update all active measurement overlays
         activeMeasurementsRef.current.forEach(item => {
             const geom = item.feature.getGeometry();
             if (!geom) return;
             const element = item.overlay.getElement();
             if (!element) return;
-
             let output = '';
             if (item.type === 'Area' && geom instanceof Polygon) {
                 output = formatAreaMetric(geom, unit);
@@ -218,7 +225,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         });
     },
     loadKML: (file: File) => {
-      overlayRef.current?.setPosition(undefined); // Hide popup
+      overlayRef.current?.setPosition(undefined);
       const processFeatures = (features: any[]) => {
          kmlSourceRef.current.clear();
          sourceRef.current.clear();
@@ -226,11 +233,33 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
          if (features.length > 0 && mapRef.current) {
            const extent = kmlSourceRef.current.getExtent();
            mapRef.current.getView().fit(extent, { padding: [50, 50, 50, 50], duration: 800 });
+           
+           // Calculate Center
            const center = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
            const wgs = convertToWGS84(center[0], center[1]);
            const currentRes = mapRef.current.getView().getResolution() || 1;
            const scale = calculateScale(currentRes, parseFloat(wgs.lat));
-           onSelectionComplete({ lat: wgs.lat, lng: wgs.lng, scale: scale, bounds: extent });
+           
+           // Calculate approximate area of the bounding box/extent for info
+           // Construct a polygon from extent
+           const extentPoly = new Polygon([[
+               [extent[0], extent[1]],
+               [extent[0], extent[3]],
+               [extent[2], extent[3]],
+               [extent[2], extent[1]],
+               [extent[0], extent[1]]
+           ]]);
+           const area = formatAreaMetric(extentPoly, 'sqm');
+           const perimeter = formatLength(extentPoly, 'm');
+
+           onSelectionComplete({ 
+               lat: wgs.lat, 
+               lng: wgs.lng, 
+               scale: scale, 
+               bounds: extent,
+               area: area,
+               perimeter: perimeter
+            });
          }
       };
 
@@ -247,7 +276,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                      processFeatures(features);
                  });
              } else {
-                 alert("Aucun fichier KML trouvé dans l'archive KMZ.");
+                 alert("Aucun fichier KML trouvé.");
              }
           }).catch((e: any) => {
               console.error(e);
@@ -267,7 +296,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       }
     },
     loadShapefile: (file: File) => {
-      overlayRef.current?.setPosition(undefined); // Hide popup
+      overlayRef.current?.setPosition(undefined);
       const reader = new FileReader();
       reader.onload = async (e) => {
         if (e.target?.result) {
@@ -292,63 +321,72 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             if (features.length > 0 && mapRef.current) {
               const extent = kmlSourceRef.current.getExtent();
               mapRef.current.getView().fit(extent, { padding: [50, 50, 50, 50], duration: 800 });
+              
               const center = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
               const wgs = convertToWGS84(center[0], center[1]);
               const currentRes = mapRef.current.getView().getResolution() || 1;
               const scale = calculateScale(currentRes, parseFloat(wgs.lat));
-              onSelectionComplete({ lat: wgs.lat, lng: wgs.lng, scale: scale, bounds: extent });
+
+              const extentPoly = new Polygon([[
+                [extent[0], extent[1]],
+                [extent[0], extent[3]],
+                [extent[2], extent[3]],
+                [extent[2], extent[1]],
+                [extent[0], extent[1]]
+               ]]);
+              
+               onSelectionComplete({ 
+                lat: wgs.lat, 
+                lng: wgs.lng, 
+                scale: scale, 
+                bounds: extent,
+                area: formatAreaMetric(extentPoly, 'sqm'),
+                perimeter: formatLength(extentPoly, 'm')
+             });
             }
           } catch (error: any) {
-            console.error("Error parsing shapefile:", error);
-            alert("Erreur lors de la lecture du fichier Shapefile. Assurez-vous d'utiliser un fichier ZIP valide.");
+            console.error(error);
+            alert("Erreur lors de la lecture du fichier Shapefile.");
           }
         }
       };
       reader.readAsArrayBuffer(file);
     },
     loadDXF: (file: File, zoneCode: string) => {
-      overlayRef.current?.setPosition(undefined); // Hide popup
+      // DXF loading logic (Same as before, just update onSelectionComplete if needed)
+      overlayRef.current?.setPosition(undefined);
       const reader = new FileReader();
       reader.onload = (e) => {
         const text = e.target?.result as string;
         try {
             const DxfParser = (window as any).DxfParser;
-            if (!DxfParser) throw new Error("DxfParser library missing or not loaded");
-            
+            if (!DxfParser) throw new Error("DxfParser library missing");
             const parser = new DxfParser();
             const dxf = parser.parseSync(text);
             const features: Feature[] = [];
-            
             const transform = (x: number, y: number) => {
                 const ll = projectFromZone(x, y, zoneCode);
                 if (ll) return fromLonLat(ll);
                 if (zoneCode === 'EPSG:4326') return fromLonLat([x, y]);
                 return null; 
             };
-
             if (dxf && dxf.entities) {
                 for (const entity of dxf.entities) {
                     if (entity.type === 'LINE') {
                          const p1 = transform(entity.vertices[0].x, entity.vertices[0].y);
                          const p2 = transform(entity.vertices[1].x, entity.vertices[1].y);
-                         if (p1 && p2) {
-                             features.push(new Feature(new LineString([p1, p2])));
-                         }
+                         if (p1 && p2) features.push(new Feature(new LineString([p1, p2])));
                     } else if (entity.type === 'LWPOLYLINE' || entity.type === 'POLYLINE') {
                         if (entity.vertices && entity.vertices.length > 1) {
                             const coords = entity.vertices.map((v: any) => transform(v.x, v.y)).filter((c: any) => c !== null);
-                            if (coords.length > 1) {
-                                features.push(new Feature(new LineString(coords)));
-                            }
+                            if (coords.length > 1) features.push(new Feature(new LineString(coords)));
                         }
                     }
                 }
             }
-            
             kmlSourceRef.current.clear();
             sourceRef.current.clear();
             kmlSourceRef.current.addFeatures(features);
-
             if (features.length > 0 && mapRef.current) {
                 const extent = kmlSourceRef.current.getExtent();
                 mapRef.current.getView().fit(extent, { padding: [50, 50, 50, 50], duration: 800 });
@@ -356,31 +394,38 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                 const wgs = convertToWGS84(center[0], center[1]);
                 const currentRes = mapRef.current.getView().getResolution() || 1;
                 const scale = calculateScale(currentRes, parseFloat(wgs.lat));
-                onSelectionComplete({ lat: wgs.lat, lng: wgs.lng, scale: scale, bounds: extent });
-            } else {
-                alert("Aucune entité supportée trouvée dans le fichier DXF ou coordonnées hors zone.");
-            }
 
+                // Approximation for DXF bounding box
+                const extentPoly = new Polygon([[
+                    [extent[0], extent[1]],
+                    [extent[0], extent[3]],
+                    [extent[2], extent[3]],
+                    [extent[2], extent[1]],
+                    [extent[0], extent[1]]
+                   ]]);
+
+                onSelectionComplete({ 
+                    lat: wgs.lat, 
+                    lng: wgs.lng, 
+                    scale: scale, 
+                    bounds: extent,
+                    area: formatAreaMetric(extentPoly, 'sqm'),
+                    perimeter: formatLength(extentPoly, 'm')
+                });
+            }
         } catch (err) {
-            console.error("DXF Error:", err);
-            alert("Erreur lors de la lecture du fichier DXF. Vérifiez la console pour plus de détails.");
+            console.error(err);
+            alert("Erreur lors de la lecture du fichier DXF.");
         }
       };
       reader.readAsText(file);
     },
     loadExcelPoints: (points) => {
-        overlayRef.current?.setPosition(undefined); // Hide popup
+        // Excel points loading (Same as before)
+        overlayRef.current?.setPosition(undefined); 
         pointsSourceRef.current.clear();
-        const features = points.map((pt, index) => {
-            const feature = new Feature({
-                geometry: new Point(fromLonLat([pt.x, pt.y])),
-                label: pt.label || `P${index + 1}`
-            });
-            return feature;
-        });
-        
+        const features = points.map((pt, index) => new Feature({ geometry: new Point(fromLonLat([pt.x, pt.y])), label: pt.label || `P${index + 1}` }));
         pointsSourceRef.current.addFeatures(features);
-        
         if (features.length > 0 && mapRef.current) {
             const extent = pointsSourceRef.current.getExtent();
             if (features.length === 1) {
@@ -392,27 +437,17 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         }
     },
     addManualPoint: (x, y, label) => {
-        const feature = new Feature({
-            geometry: new Point(fromLonLat([x, y])),
-            label: label
-        });
+        const feature = new Feature({ geometry: new Point(fromLonLat([x, y])), label: label });
         pointsSourceRef.current.addFeature(feature);
         if (mapRef.current) {
-            mapRef.current.getView().animate({
-                center: fromLonLat([x, y]),
-                zoom: 16,
-                duration: 800
-            });
+            mapRef.current.getView().animate({ center: fromLonLat([x, y]), zoom: 16, duration: 800 });
         }
     },
     setMeasureTool: (type, unit) => {
         if (!mapRef.current) return;
         currentMeasureUnitRef.current = unit;
-
-        // Cleanup previous interactions
         mapRef.current.getInteractions().forEach((i) => { if (i instanceof Draw) mapRef.current?.removeInteraction(i); });
         
-        // Remove active tooltip if one is pending but not finished (edge case)
         if (measureTooltipElementRef.current && !sketchRef.current) {
              measureTooltipElementRef.current.parentNode?.removeChild(measureTooltipElementRef.current);
              measureTooltipElementRef.current = null;
@@ -422,11 +457,9 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         createHelpTooltip();
 
         const drawType = type === 'MeasureLength' ? 'LineString' : 'Polygon';
-        
-        // Style during DRAWING: Dark Yellow as requested (#d97706 or #b45309)
         const drawingStyle = new Style({
-            fill: new Fill({ color: 'rgba(245, 158, 11, 0.2)' }), // Amber-500 transparent
-            stroke: new Stroke({ color: '#d97706', width: 3, lineDash: [10, 10] }), // Amber-600
+            fill: new Fill({ color: 'rgba(245, 158, 11, 0.2)' }),
+            stroke: new Stroke({ color: '#d97706', width: 3, lineDash: [10, 10] }),
             image: new CircleStyle({ radius: 5, stroke: new Stroke({ color: '#d97706' }), fill: new Fill({ color: '#fbbf24' }) })
         });
 
@@ -439,20 +472,18 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         draw.on('drawstart', (evt) => {
             sketchRef.current = evt.feature;
             let tooltipCoord: any = (evt as any).coordinate;
-
-            // Listener to update tooltip
             pointerMoveListenerRef.current = mapRef.current?.on('pointermove', (evt) => {
                 if (evt.dragging) return;
-                let helpMsg = 'Click to start drawing';
+                let helpMsg = 'Click to start';
                 if (sketchRef.current) {
                     const geom = sketchRef.current.getGeometry();
                     if (geom instanceof Polygon) {
-                        helpMsg = 'Double click to end polygon';
+                        helpMsg = 'Double click to end';
                         const area = formatAreaMetric(geom, currentMeasureUnitRef.current);
                         if (measureTooltipElementRef.current) measureTooltipElementRef.current.innerHTML = area;
                         tooltipCoord = geom.getInteriorPoint().getCoordinates();
                     } else if (geom instanceof LineString) {
-                        helpMsg = 'Click to continue line';
+                        helpMsg = 'Click to continue';
                         const length = formatLength(geom, currentMeasureUnitRef.current);
                         if (measureTooltipElementRef.current) measureTooltipElementRef.current.innerHTML = length;
                         tooltipCoord = geom.getLastCoordinate();
@@ -466,8 +497,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             if (measureTooltipElementRef.current) {
                 measureTooltipElementRef.current.className = 'bg-blue-600 text-white px-2 py-1 rounded text-xs whitespace-nowrap shadow-md border border-white';
                 measureTooltipRef.current?.setOffset([0, -7]);
-                
-                // Store measurement for dynamic updating
                 if (sketchRef.current && measureTooltipRef.current) {
                     activeMeasurementsRef.current.push({
                         feature: sketchRef.current,
@@ -476,22 +505,18 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                     });
                 }
             }
-            // Reset sketch
             sketchRef.current = null;
-            // Unset active tooltip so a new one is created next time
             measureTooltipElementRef.current = null;
             createMeasureTooltip();
             if (pointerMoveListenerRef.current) unByKey(pointerMoveListenerRef.current);
         });
-
         mapRef.current.addInteraction(draw);
     },
     setDrawTool: (type) => {
       if (!mapRef.current) return;
       if (pointerMoveListenerRef.current) unByKey(pointerMoveListenerRef.current);
       mapRef.current.getInteractions().forEach((i) => { if (i instanceof Draw) mapRef.current?.removeInteraction(i); });
-      overlayRef.current?.setPosition(undefined); // Reset popup when changing tool
-      
+      overlayRef.current?.setPosition(undefined);
       if (!type) return;
       
       const draw = new Draw({
@@ -511,10 +536,18 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         const geometry = event.feature.getGeometry();
         if (!geometry) return;
         
-        // Calculate Area for Selection (Standard Metric)
-        const area = getArea(geometry);
-        const { formattedM2, formattedHa } = formatArea(area);
+        // Calculate Area/Perimeter for the Selection
+        const areaVal = getArea(geometry);
+        const { formattedM2, formattedHa } = formatArea(areaVal);
         setPopupContent({ m2: formattedM2, ha: formattedHa });
+
+        // Calculate Perimeter
+        const perimeterVal = getLength(geometry);
+        const perimeterFormatted = (perimeterVal / 1000) > 1 
+            ? `${(perimeterVal / 1000).toFixed(2)} km` 
+            : `${perimeterVal.toFixed(2)} m`;
+        
+        const areaFormatted = `${formattedM2} m²`;
 
         const extent = geometry.getExtent();
         const center = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
@@ -524,13 +557,18 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         
         if (overlayRef.current) {
              let position = center;
-             if (geometry instanceof Polygon) {
-                 position = geometry.getInteriorPoint().getCoordinates();
-             }
+             if (geometry instanceof Polygon) position = geometry.getInteriorPoint().getCoordinates();
              overlayRef.current.setPosition(position);
         }
 
-        onSelectionComplete({ lat: wgs.lat, lng: wgs.lng, scale: scale, bounds: extent });
+        onSelectionComplete({ 
+            lat: wgs.lat, 
+            lng: wgs.lng, 
+            scale: scale, 
+            bounds: extent,
+            area: areaFormatted,
+            perimeter: perimeterFormatted
+        });
       });
       mapRef.current.addInteraction(draw);
     },
@@ -538,29 +576,18 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         sourceRef.current.clear(); 
         kmlSourceRef.current.clear(); 
         pointsSourceRef.current.clear();
-        measureSourceRef.current.clear(); // Clear measurements
-        activeMeasurementsRef.current = []; // Clear array tracking
+        measureSourceRef.current.clear();
+        activeMeasurementsRef.current = [];
         overlayRef.current?.setPosition(undefined);
-        
-        // Remove static measurement overlays manually to be sure
         document.querySelectorAll('.ol-overlay-container').forEach(el => {
-             if (el.innerHTML.includes('bg-blue-600') || el.innerHTML.includes('bg-black/75')) {
-                 el.remove();
-             }
+             if (el.innerHTML.includes('bg-blue-600') || el.innerHTML.includes('bg-black/75')) el.remove();
         });
     },
     getMapCanvas: async (targetScale) => {
-      // Logic unchanged for canvas export...
+        // ... (Canvas generation logic remains identical)
       if (!mapRef.current) return null;
       const map = mapRef.current;
-      
-      const allFeatures = [
-          ...kmlSourceRef.current.getFeatures(), 
-          ...sourceRef.current.getFeatures(), 
-          ...pointsSourceRef.current.getFeatures(),
-          ...measureSourceRef.current.getFeatures()
-      ];
-
+      const allFeatures = [...kmlSourceRef.current.getFeatures(), ...sourceRef.current.getFeatures(), ...pointsSourceRef.current.getFeatures(), ...measureSourceRef.current.getFeatures()];
       if (allFeatures.length === 0) return null;
 
       const extent = sourceRef.current.getFeatures().length > 0 
@@ -573,23 +600,15 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       const originalSize = map.getSize();
       const originalRes = view.getResolution();
       const originalCenter = view.getCenter();
-
       const center = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
       const wgs = convertToWGS84(center[0], center[1]);
       const exportRes = targetScale ? getResolutionFromScale(targetScale, parseFloat(wgs.lat)) : (originalRes || 1);
-
       const widthPx = Math.ceil((extent[2] - extent[0]) / exportRes);
       const heightPx = Math.ceil((extent[3] - extent[1]) / exportRes);
-
-      if (widthPx > 16384 || heightPx > 16384) {
-        alert("La zone est trop grande pour cette résolution, veuillez choisir une échelle plus grande.");
-        return null;
-      }
-
+      if (widthPx > 16384 || heightPx > 16384) { alert("La zone est trop grande."); return null; }
       map.setSize([widthPx, heightPx]);
       view.setResolution(exportRes);
       view.setCenter(center);
-
       return new Promise((resolve) => {
         map.once('rendercomplete', () => {
           const mapCanvas = document.createElement('canvas');
@@ -597,7 +616,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
           mapCanvas.height = heightPx;
           const mapContext = mapCanvas.getContext('2d');
           if (!mapContext) return resolve(null);
-
           mapContext.beginPath();
           allFeatures.forEach(feature => {
             const geom = feature.getGeometry();
@@ -654,7 +672,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             }
           });
           if (sourceRef.current.getFeatures().length > 0) mapContext.clip();
-          
           const canvases = mapElement.current?.querySelectorAll('.ol-layer canvas');
           canvases?.forEach((canvas: any) => {
             if (canvas.width > 0) {
@@ -698,6 +715,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     }
   }));
 
+  // ... (Effects remain mostly same)
   useEffect(() => {
     if (baseLayerRef.current) {
       const lyrCode = mapType === 'satellite' ? 's' : 'y';
@@ -711,8 +729,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
 
   useEffect(() => {
     if (!mapElement.current) return;
-    
-    // Create Overlay for Area Popup
     const overlay = new Overlay({
         element: popupRef.current!,
         autoPan: true,
@@ -721,7 +737,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         offset: [0, -10],
     });
     overlayRef.current = overlay;
-
     const lyrCode = mapType === 'satellite' ? 's' : 'y';
     const baseLayer = new TileLayer({
       source: new XYZ({
@@ -731,51 +746,27 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       }),
     });
     baseLayerRef.current = baseLayer;
-
     const map = new Map({
       target: mapElement.current,
       layers: [
         baseLayer,
-        new VectorLayer({
-            source: kmlSourceRef.current,
-            style: new Style({
-              stroke: new Stroke({ color: '#f59e0b', width: 2.5 }),
-              fill: new Fill({ color: 'rgba(245, 158, 11, 0.05)' }),
-            }),
-        }),
-        new VectorLayer({
-            source: pointsSourceRef.current,
-            style: pointStyle
-        }),
-        new VectorLayer({
-            source: measureSourceRef.current,
-            style: measureStyle,
-        }),
-        new VectorLayer({
-          source: sourceRef.current,
-          style: redBoundaryStyle,
-        })
+        new VectorLayer({ source: kmlSourceRef.current, style: new Style({ stroke: new Stroke({ color: '#f59e0b', width: 2.5 }), fill: new Fill({ color: 'rgba(245, 158, 11, 0.05)' }) }) }),
+        new VectorLayer({ source: pointsSourceRef.current, style: pointStyle }),
+        new VectorLayer({ source: measureSourceRef.current, style: measureStyle }),
+        new VectorLayer({ source: sourceRef.current, style: redBoundaryStyle })
       ],
       view: new View({ center: fromLonLat([-7.5898, 33.5731]), zoom: 6, maxZoom: 22 }),
       controls: [new Zoom(), new ScaleLine({ units: 'metric' })],
-      overlays: [overlay], // Add overlay to map
+      overlays: [overlay],
     });
-    
-    // Mouse Move Event for coordinates
     map.on('pointermove', (evt) => {
         if (evt.dragging) return;
-        const coords = toLonLat(evt.coordinate); // Get WGS84
-        
-        // Always return degrees (WGS84) as requested
+        const coords = toLonLat(evt.coordinate);
         if (onMouseMove) onMouseMove(coords[0].toFixed(6), coords[1].toFixed(6));
     });
-
     mapRef.current = map;
     return () => map.setTarget(undefined);
   }, []); 
-  
-  const selectedZoneRef = useRef(selectedZone);
-  useEffect(() => { selectedZoneRef.current = selectedZone; }, [selectedZone]);
   
   return (
       <div ref={mapElement} className="w-full h-full bg-slate-50 relative">
