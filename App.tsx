@@ -638,6 +638,15 @@ const App: React.FC = () => {
 
               </div>
 
+              {/* My Position Button */}
+              <button 
+                onClick={() => mapComponentRef.current?.locateUser()}
+                className="absolute bottom-6 right-6 z-30 w-10 h-10 bg-white rounded-full shadow-lg border border-neutral-300 flex items-center justify-center text-neutral-700 hover:text-blue-600 hover:bg-neutral-50 transition-transform active:scale-95"
+                title="Ma position"
+              >
+                  <i className="fas fa-crosshairs text-lg"></i>
+              </button>
+
               <MapComponent 
                 ref={mapComponentRef} 
                 mapType={mapType}

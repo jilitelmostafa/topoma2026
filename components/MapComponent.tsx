@@ -41,6 +41,7 @@ export interface MapComponentRef {
   setMeasureTool: (type: 'MeasureLength' | 'MeasureArea', unit: string) => void;
   clearAll: () => void;
   setMapScale: (scale: number) => void;
+  locateUser: () => void;
 }
 
 const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelectionComplete, mapType }, ref) => {
@@ -161,6 +162,38 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
   };
 
   useImperativeHandle(ref, () => ({
+    locateUser: () => {
+        if (!navigator.geolocation) {
+            alert("La géolocalisation n'est pas supportée par votre navigateur.");
+            return;
+        }
+        
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const { latitude, longitude } = position.coords;
+                const coords = fromLonLat([longitude, latitude]);
+                
+                if (mapRef.current) {
+                    mapRef.current.getView().animate({
+                        center: coords,
+                        zoom: 18,
+                        duration: 1000
+                    });
+
+                    const userFeature = new Feature({
+                        geometry: new Point(coords),
+                        label: 'Moi'
+                    });
+                    pointsSourceRef.current.addFeature(userFeature);
+                }
+            },
+            (error) => {
+                console.error("Geolocation error:", error);
+                alert("Impossible d'obtenir votre position. Vérifiez vos autorisations.");
+            },
+            { enableHighAccuracy: true }
+        );
+    },
     setMapScale: (scale) => {
       if (!mapRef.current) return;
       const view = mapRef.current.getView();
