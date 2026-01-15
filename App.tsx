@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import MapComponent, { MapComponentRef } from './components/MapComponent';
-import proj4 from 'proj4';
-import { smartProjectToWGS84 } from './services/geoService';
+import { projectFromZone } from './services/geoService';
 
 declare const UTIF: any;
 declare const JSZip: any;
@@ -31,6 +30,14 @@ const SCALES = [
   { label: '1:250000', value: 250000 }
 ];
 
+const ZONES = [
+  { code: 'EPSG:4326', label: 'WGS 84 (GPS Global)' },
+  { code: 'EPSG:26191', label: 'Maroc Zone 1 (Nord)' },
+  { code: 'EPSG:26192', label: 'Maroc Zone 2 (Sud/Centre)' },
+  { code: 'EPSG:26194', label: 'Maroc Zone 3 (Sahara Nord)' },
+  { code: 'EPSG:26195', label: 'Maroc Zone 4 (Sahara Sud)' },
+];
+
 const App: React.FC = () => {
   const [exportData, setExportData] = useState<ExportData | null>(null);
   const [step, setStep] = useState<WorkflowStep>('IDLE');
@@ -39,6 +46,7 @@ const App: React.FC = () => {
   const [fileName, setFileName] = useState("");
   const [selectedScale, setSelectedScale] = useState<number>(1000);
   const [mapType, setMapType] = useState<MapType>('satellite');
+  const [selectedZone, setSelectedZone] = useState<string>('EPSG:26191'); // Default to Zone 1
   
   const mapComponentRef = useRef<MapComponentRef>(null);
   const kmlInputRef = useRef<HTMLInputElement>(null);
@@ -107,6 +115,8 @@ const App: React.FC = () => {
                 const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
 
                 const validPoints: Array<{x: number, y: number, label?: string}> = [];
+                let successCount = 0;
+                let failCount = 0;
                 
                 jsonData.forEach((row: any) => {
                     // البحث عن الأعمدة المحتملة بغض النظر عن حالة الأحرف
@@ -120,14 +130,18 @@ const App: React.FC = () => {
                         const rawY = parseCoordinateValue(row[yKey]);
 
                         if (!isNaN(rawX) && !isNaN(rawY)) {
-                            // التحويل التلقائي (WGS84 أو Lambert Maroc)
-                            const wgs84 = smartProjectToWGS84(rawX, rawY);
+                            // التحويل المباشر باستخدام النطاق المختار
+                            const wgs84 = projectFromZone(rawX, rawY, selectedZone);
+                            
                             if (wgs84) {
                                 validPoints.push({
                                     x: wgs84[0],
                                     y: wgs84[1],
                                     label: labelKey ? String(row[labelKey]) : undefined
                                 });
+                                successCount++;
+                            } else {
+                                failCount++;
                             }
                         }
                     }
@@ -135,10 +149,14 @@ const App: React.FC = () => {
 
                 if (validPoints.length > 0) {
                     mapComponentRef.current?.loadExcelPoints(validPoints);
-                    // إعادة تعيين الإدخال للسماح برفع نفس الملف مرة أخرى إذا لزم الأمر
+                    // إعادة تعيين الإدخال للسماح برفع نفس الملف مرة أخرى
                     if (excelInputRef.current) excelInputRef.current.value = '';
+                    
+                    if (failCount > 0) {
+                        console.warn(`${failCount} points were outside Moroccan bounds or invalid.`);
+                    }
                 } else {
-                    alert("Impossible de trouver des colonnes de coordonnées valides (X, Y) ou format incorrect.");
+                    alert("Aucun point valide trouvé. Vérifiez les colonnes X/Y et le système de coordonnées choisi.");
                 }
 
             } catch (err) {
@@ -151,22 +169,32 @@ const App: React.FC = () => {
   };
 
   const startClipping = async () => {
+    // ... (previous code remains same - leveraging imported logic via mapComponent)
+    // For brevity in update, keeping logical flow of importing/exporting.
+    // Full implementation relies on mapComponent methods.
+    
     if (!mapComponentRef.current || !exportData) return;
     setStep('PROCESSING');
-
-    try {
+    
+    // ... same implementation as before ...
+     try {
       const result = await mapComponentRef.current.getMapCanvas(selectedScale);
       if (!result) throw new Error("Empty Canvas");
 
       const { canvas, extent } = result;
+      // Using dynamic import of UTIF/proj4 logic handled inside mapComponent or globally declared
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
       
       const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const tiffBuffer = UTIF.encodeImage(imgData.data, canvas.width, canvas.height);
       
-      const minCorner = proj4('EPSG:3857', 'EPSG:4326', [extent[0], extent[1]]);
-      const maxCorner = proj4('EPSG:3857', 'EPSG:4326', [extent[2], extent[3]]);
+      // Proj4 is imported in App for calculations
+      // Import proj4 locally if needed or rely on global scope if mixed
+      const proj4lib = (await import('proj4')).default; 
+
+      const minCorner = proj4lib('EPSG:3857', 'EPSG:4326', [extent[0], extent[1]]);
+      const maxCorner = proj4lib('EPSG:3857', 'EPSG:4326', [extent[2], extent[3]]);
       
       const pixelWidthX = (maxCorner[0] - minCorner[0]) / canvas.width;
       const pixelHeightY = (maxCorner[1] - minCorner[1]) / canvas.height;
@@ -283,7 +311,7 @@ const App: React.FC = () => {
             <input type="file" accept=".kml,.kmz" className="hidden" ref={kmlInputRef} onChange={handleKMLUpload} />
             <button 
               onClick={() => kmlInputRef.current?.click()}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
+              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95 mb-2"
             >
               <i className="fas fa-file-code text-lg text-amber-500"></i>
               <span className="text-[11px]">Importer KML / KMZ</span>
@@ -293,21 +321,39 @@ const App: React.FC = () => {
             <input type="file" accept=".zip" className="hidden" ref={shpInputRef} onChange={handleShapefileUpload} />
             <button 
               onClick={() => shpInputRef.current?.click()}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
+              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95 mb-2"
             >
               <i className="fas fa-file-archive text-lg text-green-500"></i>
               <span className="text-[11px]">Importer Shapefile (ZIP)</span>
             </button>
 
-            {/* Excel (XLSX) */}
-            <input type="file" accept=".xlsx, .xls" className="hidden" ref={excelInputRef} onChange={handleExcelUpload} />
-            <button 
-              onClick={() => excelInputRef.current?.click()}
-              className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-3 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
-            >
-              <i className="fas fa-file-excel text-lg text-blue-500"></i>
-              <span className="text-[11px]">Importer Excel (X, Y)</span>
-            </button>
+            {/* Excel Section */}
+            <div className="bg-slate-800/30 rounded-2xl p-3 border border-white/10 space-y-2">
+                <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-blue-400 uppercase">Points (Excel)</label>
+                    <i className="fas fa-table text-blue-500"></i>
+                </div>
+                
+                {/* Zone Selection */}
+                <select 
+                    value={selectedZone}
+                    onChange={(e) => setSelectedZone(e.target.value)}
+                    className="w-full bg-slate-900 border border-white/10 text-white text-[10px] p-2 rounded-lg outline-none focus:border-blue-500"
+                >
+                    {ZONES.map(z => (
+                        <option key={z.code} value={z.code}>{z.label}</option>
+                    ))}
+                </select>
+
+                <input type="file" accept=".xlsx, .xls" className="hidden" ref={excelInputRef} onChange={handleExcelUpload} />
+                <button 
+                  onClick={() => excelInputRef.current?.click()}
+                  className="w-full bg-blue-600/20 hover:bg-blue-600/40 text-blue-100 border border-blue-500/30 py-2 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 text-[11px]"
+                >
+                  <i className="fas fa-upload"></i>
+                  <span>Charger Fichier X/Y</span>
+                </button>
+            </div>
           </div>
 
           {/* Scale Selection & Map Zoom Control */}
