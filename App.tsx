@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import MapComponent, { MapComponentRef } from './components/MapComponent';
-import { projectFromZone } from './services/geoService';
+import { projectFromZone, fetchLocationName } from './services/geoService';
 
 declare const UTIF: any;
 declare const JSZip: any;
@@ -104,9 +104,10 @@ const App: React.FC = () => {
   const [selectedZone, setSelectedZone] = useState<string>('EPSG:26191'); 
   const [selectedExcelFile, setSelectedExcelFile] = useState<File | null>(null);
   const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
+  const [locationName, setLocationName] = useState<string>("location");
   
   // Mouse Coordinates
-  const [mouseCoords, setMouseCoords] = useState({ x: '0.00', y: '0.00' });
+  const [mouseCoords, setMouseCoords] = useState({ x: 'E0.0000', y: 'N0.0000' });
   
   // Manual Input State (Go To XY)
   const [manualX, setManualX] = useState<string>('');
@@ -122,9 +123,18 @@ const App: React.FC = () => {
   const dxfInputRef = useRef<HTMLInputElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
 
+  // Auto-fetch location name when selection occurs
+  useEffect(() => {
+    if (exportData) {
+        fetchLocationName(parseFloat(exportData.lat), parseFloat(exportData.lng))
+            .then(name => setLocationName(name));
+    }
+  }, [exportData]);
+
   const handleScaleChange = (newScale: number) => {
     setSelectedScale(newScale);
-    mapComponentRef.current?.setMapScale(newScale);
+    // When scale changes, ensure we zoom into the selection if available
+    mapComponentRef.current?.setMapScale(newScale, true);
   };
 
   const toggleTool = (tool: ToolType) => {
@@ -321,9 +331,25 @@ const App: React.FC = () => {
             ].join('\n');
             
             const prj = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+            
+            // Format Date: MM.YY
+            const date = new Date();
+            const dateStr = `${(date.getMonth() + 1).toString().padStart(2, '0')}.${date.getFullYear().toString().slice(-2)}`;
+            
+            // Format Coordinates: n30_w010
+            const lat = parseFloat(exportData.lat);
+            const lng = parseFloat(exportData.lng);
+            const latDir = lat >= 0 ? 'n' : 's';
+            const lonDir = lng >= 0 ? 'e' : 'w';
+            const coordStr = `${latDir}${Math.floor(Math.abs(lat))}_${lonDir}${Math.floor(Math.abs(lng)).toString().padStart(3, '0')}`;
+            
+            // Scale String (e.g., 500m or 1000)
+            const scaleObj = EXPORT_SCALES.find(s => s.value === selectedScale);
+            const scaleStr = scaleObj ? scaleObj.label.replace(/\s+/g, '') : selectedScale.toString();
+
+            const baseName = `${locationName}_${scaleStr}_${coordStr}_${dateStr}_topoma`;
 
             const zip = new JSZip();
-            const baseName = `SIG_CLIP_${selectedScale}_${Date.now()}`;
             zip.file(`${baseName}.tif`, tiffBuffer);
             zip.file(`${baseName}.tfw`, tfw);
             zip.file(`${baseName}.prj`, prj);
@@ -361,6 +387,7 @@ const App: React.FC = () => {
     setSelectedExcelFile(null);
     setLoadedFiles([]);
     setPointCounter(1);
+    setLocationName("location");
   };
 
   return (
@@ -565,10 +592,7 @@ const App: React.FC = () => {
                                    <div className="font-bold flex items-center gap-1 border-b border-blue-200 pb-1 mb-1">
                                        <i className="fas fa-info-circle"></i> Info Élément
                                    </div>
-                                   <div className="flex justify-between">
-                                       <span className="text-blue-700">Zone:</span>
-                                       <span className="font-mono">{ZONES.find(z => z.code === selectedZone)?.label || 'WGS84'}</span>
-                                   </div>
+                                   {/* REMOVED ZONE LINE AS REQUESTED */}
                                    {exportData.area && (
                                        <div className="flex justify-between">
                                             <span className="text-blue-700">Area:</span>
@@ -773,8 +797,8 @@ const App: React.FC = () => {
           <div className="flex gap-6 items-center">
               {/* Coordinates (Degrees) */}
               <div className="flex gap-3 font-mono text-neutral-700">
-                  <span className="w-24 text-right">Lon: {mouseCoords.x}°</span>
-                  <span className="w-24 text-left">Lat: {mouseCoords.y}°</span>
+                  <span className="w-20 text-right">{mouseCoords.y}</span>
+                  <span className="w-20 text-left">{mouseCoords.x}</span>
               </div>
               
               <div className="flex items-center gap-1 border-l border-neutral-300 pl-4">
@@ -788,8 +812,16 @@ const App: React.FC = () => {
                   </select>
               </div>
           </div>
-          <div>
-              <span>Prj: <span className="font-bold text-neutral-700">{ZONES.find(z => z.code === selectedZone)?.label}</span></span>
+          <div className="flex items-center gap-1">
+              <span>Prj:</span>
+              <select 
+                  value={selectedZone}
+                  onChange={(e) => setSelectedZone(e.target.value)}
+                  className="bg-neutral-200 border-none focus:ring-0 p-0 text-[10px] h-4 cursor-pointer hover:bg-neutral-300 rounded font-bold text-neutral-700 max-w-[120px] truncate"
+                  title="Changer la projection"
+              >
+                  {ZONES.map(z => <option key={z.code} value={z.code}>{z.label}</option>)}
+              </select>
           </div>
       </div>
     </div>

@@ -104,3 +104,30 @@ export const formatArea = (area: number): { formattedM2: string, formattedHa: st
 
   return { formattedM2, formattedHa };
 };
+
+// Reverse Geocoding to get Commune Name
+export const fetchLocationName = async (lat: number, lon: number): Promise<string> => {
+    try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=12&addressdetails=1`, {
+            headers: {
+                'User-Agent': 'GeoMapperPro/1.0'
+            }
+        });
+        const data = await response.json();
+        
+        // Prioritize: Village -> Town -> City -> County -> State
+        const addr = data.address;
+        if (!addr) return "location";
+        
+        const name = addr.village || addr.town || addr.city || addr.municipality || addr.county || "maroc";
+        
+        // Sanitize: replace spaces with underscores, lowercase, remove special chars
+        return name.toLowerCase()
+            .replace(/\s+/g, '_')
+            .replace(/[^a-z0-9_]/g, '');
+            
+    } catch (e) {
+        console.error("Geocoding failed", e);
+        return "location";
+    }
+};

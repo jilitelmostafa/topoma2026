@@ -54,7 +54,7 @@ export interface MapComponentRef {
   setMeasureTool: (type: 'MeasureLength' | 'MeasureArea', unit: string) => void;
   updateMeasureUnit: (unit: string) => void;
   clearAll: () => void;
-  setMapScale: (scale: number) => void;
+  setMapScale: (scale: number, centerOnSelection?: boolean) => void;
   locateUser: () => void;
 }
 
@@ -199,14 +199,28 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             { enableHighAccuracy: true }
         );
     },
-    setMapScale: (scale) => {
+    setMapScale: (scale, centerOnSelection = false) => {
       if (!mapRef.current) return;
       const view = mapRef.current.getView();
-      const center = view.getCenter();
+      
+      let center = view.getCenter();
+      
+      // If requested to center on selection, calculate center of features
+      if (centerOnSelection) {
+          const extent = sourceRef.current.getFeatures().length > 0 
+          ? sourceRef.current.getExtent() 
+          : (kmlSourceRef.current.getFeatures().length > 0 ? kmlSourceRef.current.getExtent() : null);
+          
+          if (extent) {
+              center = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
+              view.setCenter(center);
+          }
+      }
+
       if (!center) return;
       const lonLat = toLonLat(center);
       const res = getResolutionFromScale(scale, lonLat[1]);
-      view.animate({ resolution: res, duration: 600 });
+      view.animate({ resolution: res, center: center, duration: 600 });
     },
     updateMeasureUnit: (unit) => {
         currentMeasureUnitRef.current = unit;
@@ -759,10 +773,21 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       controls: [new Zoom(), new ScaleLine({ units: 'metric' })],
       overlays: [overlay],
     });
+    
+    // Updated Mouse Move logic to format N/W direction
     map.on('pointermove', (evt) => {
         if (evt.dragging) return;
         const coords = toLonLat(evt.coordinate);
-        if (onMouseMove) onMouseMove(coords[0].toFixed(6), coords[1].toFixed(6));
+        const lon = coords[0];
+        const lat = coords[1];
+        
+        const latDir = lat >= 0 ? 'N' : 'S';
+        const lonDir = lon >= 0 ? 'E' : 'W';
+        
+        const latStr = `${latDir}${Math.abs(lat).toFixed(4)}`;
+        const lonStr = `${lonDir}${Math.abs(lon).toFixed(4)}`;
+        
+        if (onMouseMove) onMouseMove(lonStr, latStr);
     });
     mapRef.current = map;
     return () => map.setTarget(undefined);
