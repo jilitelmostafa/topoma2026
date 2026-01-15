@@ -92,10 +92,18 @@ const App: React.FC = () => {
   const parseCoordinateValue = (val: any): number => {
     if (typeof val === 'number') return val;
     if (!val) return NaN;
-    const strVal = String(val).trim();
-    // استبدال الفاصلة بالنقطة للتحويل الصحيح
-    const normalized = strVal.replace(',', '.');
-    return parseFloat(normalized);
+    
+    // تحويل القيمة إلى نص
+    let strVal = String(val).trim();
+
+    // حذف المسافات (العادية وغير المنكسرة) التي قد تستخدم كفواصل للآلاف
+    strVal = strVal.replace(/\s/g, '').replace(/\u00A0/g, '');
+
+    // استبدال الفاصلة بالنقطة لدعم الأرقام العشرية (مثلاً: 572478,0646 -> 572478.0646)
+    strVal = strVal.replace(',', '.');
+    
+    const parsed = parseFloat(strVal);
+    return isNaN(parsed) ? NaN : parsed;
   };
 
   // 1. اختيار الملف فقط وتخزينه في الحالة
@@ -135,7 +143,7 @@ const App: React.FC = () => {
                 const labelKey = Object.keys(row).find(k => /^(id|name|nom|label|point)$/i.test(k));
 
                 if (xKey && yKey) {
-                    // استخدام دالة التحليل التي تدعم الفاصلة والنقطة
+                    // استخدام دالة التحليل التي تدعم الفاصلة والنقطة والمسافات
                     const rawX = parseCoordinateValue(row[xKey]);
                     const rawY = parseCoordinateValue(row[yKey]);
 
