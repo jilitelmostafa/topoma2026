@@ -10,7 +10,7 @@ import Draw, { createBox } from 'ol/interaction/Draw';
 import { Style, Stroke, Fill, Circle as CircleStyle, Text } from 'ol/style';
 import { ScaleLine, Zoom } from 'ol/control';
 import Overlay from 'ol/Overlay';
-import { getArea } from 'ol/sphere';
+import { getArea, getLength } from 'ol/sphere';
 import KML from 'ol/format/KML';
 import GeoJSON from 'ol/format/GeoJSON';
 import Polygon from 'ol/geom/Polygon';
@@ -19,6 +19,7 @@ import LineString from 'ol/geom/LineString';
 import Point from 'ol/geom/Point';
 import Feature from 'ol/Feature';
 import { convertToWGS84, calculateScale, getResolutionFromScale, projectFromZone, formatArea } from '../services/geoService';
+import { unByKey } from 'ol/Observable';
 
 // تعريف المكتبات العالمية
 declare const shp: any;
@@ -37,6 +38,7 @@ export interface MapComponentRef {
   loadExcelPoints: (points: Array<{x: number, y: number, label?: string}>) => void;
   addManualPoint: (x: number, y: number, label: string) => void;
   setDrawTool: (type: 'Rectangle' | 'Polygon' | null) => void;
+  setMeasureTool: (type: 'MeasureLength' | 'MeasureArea', unit: string) => void;
   clearAll: () => void;
   setMapScale: (scale: number) => void;
 }
@@ -44,23 +46,42 @@ export interface MapComponentRef {
 const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelectionComplete, mapType }, ref) => {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
-  const sourceRef = useRef<VectorSource>(new VectorSource());
-  const kmlSourceRef = useRef<VectorSource>(new VectorSource());
-  const pointsSourceRef = useRef<VectorSource>(new VectorSource());
+  const sourceRef = useRef<VectorSource>(new VectorSource()); // Clip Boundary
+  const kmlSourceRef = useRef<VectorSource>(new VectorSource()); // Imported Data
+  const pointsSourceRef = useRef<VectorSource>(new VectorSource()); // Points
+  const measureSourceRef = useRef<VectorSource>(new VectorSource()); // Measurements
   const baseLayerRef = useRef<TileLayer<XYZ> | null>(null);
   
-  // Refs for Popup Overlay
+  // Refs for Popup Overlay (Selection Area)
   const popupRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<Overlay | null>(null);
   const [popupContent, setPopupContent] = useState<{ m2: string, ha: string } | null>(null);
 
-  // تعريف النمط الأحمر الشفاف للرسم
+  // Measurement References
+  const sketchRef = useRef<any>(null);
+  const helpTooltipElementRef = useRef<HTMLElement | null>(null);
+  const helpTooltipRef = useRef<Overlay | null>(null);
+  const measureTooltipElementRef = useRef<HTMLElement | null>(null);
+  const measureTooltipRef = useRef<Overlay | null>(null);
+  const pointerMoveListenerRef = useRef<any>(null);
+  const currentMeasureUnitRef = useRef<string>('m');
+
+  // Styles
   const redBoundaryStyle = new Style({
     fill: new Fill({ color: 'rgba(0, 0, 0, 0)' }), 
     stroke: new Stroke({ color: '#ff0000', width: 3 }),
   });
 
-  // نمط النقاط المستوردة (Excel) أو اليدوية
+  const measureStyle = new Style({
+    fill: new Fill({ color: 'rgba(255, 255, 255, 0.2)' }),
+    stroke: new Stroke({ color: '#3b82f6', width: 2, lineDash: [10, 10] }),
+    image: new CircleStyle({
+      radius: 5,
+      stroke: new Stroke({ color: '#3b82f6', width: 2 }),
+      fill: new Fill({ color: '#ffffff' }),
+    }),
+  });
+
   const pointStyle = (feature: any) => {
     return new Style({
       image: new CircleStyle({
@@ -76,6 +97,67 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         stroke: new Stroke({ color: '#000000', width: 3 }),
       })
     });
+  };
+
+  // Helper formatting functions
+  const formatLength = (line: LineString, unit: string) => {
+    const length = getLength(line);
+    let output;
+    if (unit === 'km') {
+        output = (length / 1000).toFixed(2) + ' km';
+    } else if (unit === 'ft') {
+        output = (length * 3.28084).toFixed(2) + ' ft';
+    } else if (unit === 'mi') {
+        output = (length * 0.000621371).toFixed(3) + ' mi';
+    } else {
+        output = length.toFixed(2) + ' m';
+    }
+    return output;
+  };
+
+  const formatAreaMetric = (polygon: Polygon, unit: string) => {
+    const area = getArea(polygon);
+    let output;
+    if (unit === 'ha') {
+        output = (area / 10000).toFixed(2) + ' ha';
+    } else if (unit === 'sqkm') {
+        output = (area / 1000000).toFixed(2) + ' km²';
+    } else if (unit === 'ac') {
+        output = (area * 0.000247105).toFixed(2) + ' ac';
+    } else {
+        output = area.toFixed(2) + ' m²';
+    }
+    return output;
+  };
+
+  const createMeasureTooltip = () => {
+    if (measureTooltipElementRef.current) {
+        measureTooltipElementRef.current.parentNode?.removeChild(measureTooltipElementRef.current);
+    }
+    measureTooltipElementRef.current = document.createElement('div');
+    measureTooltipElementRef.current.className = 'bg-black/75 text-white px-2 py-1 rounded text-xs whitespace-nowrap border border-white/20 shadow-sm pointer-events-none transform translate-y-[-10px]';
+    measureTooltipRef.current = new Overlay({
+        element: measureTooltipElementRef.current,
+        offset: [0, -15],
+        positioning: 'bottom-center',
+        stopEvent: false,
+        insertFirst: false,
+    });
+    mapRef.current?.addOverlay(measureTooltipRef.current);
+  };
+
+  const createHelpTooltip = () => {
+    if (helpTooltipElementRef.current) {
+        helpTooltipElementRef.current.parentNode?.removeChild(helpTooltipElementRef.current);
+    }
+    helpTooltipElementRef.current = document.createElement('div');
+    helpTooltipElementRef.current.className = 'hidden'; // Hidden by default, can be used for instructions
+    helpTooltipRef.current = new Overlay({
+        element: helpTooltipElementRef.current,
+        offset: [15, 0],
+        positioning: 'center-left',
+    });
+    mapRef.current?.addOverlay(helpTooltipRef.current);
   };
 
   useImperativeHandle(ref, () => ({
@@ -146,7 +228,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         if (e.target?.result) {
           try {
             const buffer = e.target.result as ArrayBuffer;
-            // استخدام shpjs الافتراضي (يدعم ZIP فقط)
             const geojson = await shp(buffer);
 
             const format = new GeoJSON();
@@ -186,7 +267,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       reader.onload = (e) => {
         const text = e.target?.result as string;
         try {
-            // Access DxfParser from global window object
             const DxfParser = (window as any).DxfParser;
             if (!DxfParser) throw new Error("DxfParser library missing or not loaded");
             
@@ -194,11 +274,9 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             const dxf = parser.parseSync(text);
             const features: Feature[] = [];
             
-            // دالة مساعدة لتحويل الإحداثيات من النطاق المختار إلى إسقاط الخريطة
             const transform = (x: number, y: number) => {
                 const ll = projectFromZone(x, y, zoneCode);
                 if (ll) return fromLonLat(ll);
-                // في حال الفشل أو إذا كانت الإحداثيات WGS84
                 if (zoneCode === 'EPSG:4326') return fromLonLat([x, y]);
                 return null; 
             };
@@ -269,7 +347,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         }
     },
     addManualPoint: (x, y, label) => {
-        // This adds to existing points without clearing
         const feature = new Feature({
             geometry: new Point(fromLonLat([x, y])),
             label: label
@@ -283,8 +360,79 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             });
         }
     },
+    setMeasureTool: (type, unit) => {
+        if (!mapRef.current) return;
+        currentMeasureUnitRef.current = unit;
+
+        // Cleanup previous interactions
+        mapRef.current.getInteractions().forEach((i) => { if (i instanceof Draw) mapRef.current?.removeInteraction(i); });
+        
+        // Remove Tooltips if starting new
+        if (measureTooltipRef.current) {
+            // Keep existing static tooltips on map, only remove the active one's reference
+            // Actually in this simple version, we will clear current "active" tooltip ref
+        }
+        createMeasureTooltip();
+        createHelpTooltip();
+
+        const drawType = type === 'MeasureLength' ? 'LineString' : 'Polygon';
+        const draw = new Draw({
+            source: measureSourceRef.current,
+            type: drawType,
+            style: new Style({
+                fill: new Fill({ color: 'rgba(255, 255, 255, 0.2)' }),
+                stroke: new Stroke({ color: 'rgba(0, 0, 0, 0.5)', lineDash: [10, 10], width: 2 }),
+                image: new CircleStyle({ radius: 5, stroke: new Stroke({ color: 'rgba(0, 0, 0, 0.7)' }), fill: new Fill({ color: 'rgba(255, 255, 255, 0.2)' }) }),
+            }),
+        });
+
+        draw.on('drawstart', (evt) => {
+            sketchRef.current = evt.feature;
+            let tooltipCoord: any = (evt as any).coordinate;
+
+            // Listener to update tooltip
+            pointerMoveListenerRef.current = mapRef.current?.on('pointermove', (evt) => {
+                if (evt.dragging) return;
+                let helpMsg = 'Click to start drawing';
+                if (sketchRef.current) {
+                    const geom = sketchRef.current.getGeometry();
+                    if (geom instanceof Polygon) {
+                        helpMsg = 'Double click to end polygon';
+                        const area = formatAreaMetric(geom, currentMeasureUnitRef.current);
+                        if (measureTooltipElementRef.current) measureTooltipElementRef.current.innerHTML = area;
+                        tooltipCoord = geom.getInteriorPoint().getCoordinates();
+                    } else if (geom instanceof LineString) {
+                        helpMsg = 'Click to continue line';
+                        const length = formatLength(geom, currentMeasureUnitRef.current);
+                        if (measureTooltipElementRef.current) measureTooltipElementRef.current.innerHTML = length;
+                        tooltipCoord = geom.getLastCoordinate();
+                    }
+                    if (measureTooltipRef.current) measureTooltipRef.current.setPosition(tooltipCoord);
+                }
+            });
+        });
+
+        draw.on('drawend', () => {
+            if (measureTooltipElementRef.current) {
+                measureTooltipElementRef.current.className = 'bg-blue-600 text-white px-2 py-1 rounded text-xs whitespace-nowrap shadow-md border border-white';
+                measureTooltipRef.current?.setOffset([0, -7]);
+            }
+            // Reset sketch
+            sketchRef.current = null;
+            // Unset active tooltip so a new one is created next time
+            measureTooltipElementRef.current = null;
+            createMeasureTooltip();
+            if (pointerMoveListenerRef.current) unByKey(pointerMoveListenerRef.current);
+        });
+
+        mapRef.current.addInteraction(draw);
+    },
     setDrawTool: (type) => {
       if (!mapRef.current) return;
+      // Clear measurement artifacts if switching back to selection/pan
+      if (pointerMoveListenerRef.current) unByKey(pointerMoveListenerRef.current);
+      // We do NOT clear measureSourceRef here so measurements stay visible until "Reset"
+
       mapRef.current.getInteractions().forEach((i) => { if (i instanceof Draw) mapRef.current?.removeInteraction(i); });
       overlayRef.current?.setPosition(undefined); // Reset popup when changing tool
       
@@ -300,14 +448,14 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       draw.on('drawstart', () => { 
         sourceRef.current.clear(); 
         kmlSourceRef.current.clear(); 
-        overlayRef.current?.setPosition(undefined); // Hide popup on start drawing
+        overlayRef.current?.setPosition(undefined); 
       });
 
       draw.on('drawend', (event) => {
         const geometry = event.feature.getGeometry();
         if (!geometry) return;
         
-        // Calculate Area
+        // Calculate Area for Selection (Standard Metric)
         const area = getArea(geometry);
         const { formattedM2, formattedHa } = formatArea(area);
         setPopupContent({ m2: formattedM2, ha: formattedHa });
@@ -318,9 +466,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         const currentRes = mapRef.current?.getView().getResolution() || 1;
         const scale = calculateScale(currentRes, parseFloat(wgs.lat));
         
-        // Show Popup
         if (overlayRef.current) {
-             // For Polygons, try to use interior point, otherwise center of extent
              let position = center;
              if (geometry instanceof Polygon) {
                  position = geometry.getInteriorPoint().getCoordinates();
@@ -336,14 +482,34 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         sourceRef.current.clear(); 
         kmlSourceRef.current.clear(); 
         pointsSourceRef.current.clear();
+        measureSourceRef.current.clear(); // Clear measurements
         overlayRef.current?.setPosition(undefined);
+        
+        // Remove static measurement overlays
+        document.querySelectorAll('.ol-overlay-container').forEach(el => {
+             // Only remove if it contains our specific tooltip classes or if we want a full nuke
+             if (el.innerHTML.includes('bg-blue-600') || el.innerHTML.includes('bg-black/75')) {
+                 el.remove();
+             }
+        });
     },
     getMapCanvas: async (targetScale) => {
       if (!mapRef.current) return null;
       const map = mapRef.current;
-      const allFeatures = [...kmlSourceRef.current.getFeatures(), ...sourceRef.current.getFeatures(), ...pointsSourceRef.current.getFeatures()];
+      // Include measureSourceRef features in export? Usually no for "Clip", but if screenshot yes.
+      // Current requirement implies Clipping "Map". We typically clip the selection. 
+      // Measurements are usually overlay annotations. We will include them if they exist.
+      
+      const allFeatures = [
+          ...kmlSourceRef.current.getFeatures(), 
+          ...sourceRef.current.getFeatures(), 
+          ...pointsSourceRef.current.getFeatures(),
+          ...measureSourceRef.current.getFeatures()
+      ];
+
       if (allFeatures.length === 0) return null;
 
+      // Determine extent primarily from the Selection Box (sourceRef) if it exists, otherwise data
       const extent = sourceRef.current.getFeatures().length > 0 
           ? sourceRef.current.getExtent() 
           : (kmlSourceRef.current.getFeatures().length > 0 ? kmlSourceRef.current.getExtent() : pointsSourceRef.current.getExtent());
@@ -379,15 +545,17 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
           const mapContext = mapCanvas.getContext('2d');
           if (!mapContext) return resolve(null);
 
+          // Draw features
           mapContext.beginPath();
           allFeatures.forEach(feature => {
             const geom = feature.getGeometry();
-            const coords: any[] = [];
-            // Handle Polygons
-            if (geom instanceof Polygon) coords.push(geom.getCoordinates());
-            else if (geom instanceof MultiPolygon) coords.push(...geom.getCoordinates());
-            // Handle Lines (DXF)
-            if (geom instanceof LineString) {
+            // Handle different geometry types for drawing manually if needed
+            // However, grabbing the canvas directly from OL layers is often easier but complex with cross-origin Tiled layers.
+            // The existing code manually draws vectors. Let's ensure measurements are drawn.
+            
+            // ... existing vector drawing logic ...
+            // We need to add logic for LineString (Measure Length)
+             if (geom instanceof LineString) {
                 const lineCoords = geom.getCoordinates();
                 mapContext.beginPath();
                 lineCoords.forEach((coord, idx) => {
@@ -396,32 +564,59 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                     if (idx === 0) mapContext.moveTo(px, py);
                     else mapContext.lineTo(px, py);
                 });
-                mapContext.strokeStyle = "#f59e0b";
-                mapContext.lineWidth = 2.5;
+                mapContext.strokeStyle = "#3b82f6"; // Blue for measure
+                mapContext.lineWidth = 2;
+                mapContext.setLineDash([10, 10]);
                 mapContext.stroke();
+                mapContext.setLineDash([]);
+            }
+            
+            // Handle Polygons (Clip & Measure)
+            if (geom instanceof Polygon || geom instanceof MultiPolygon) {
+                 const polys = geom instanceof Polygon ? [geom.getCoordinates()] : geom.getCoordinates();
+                 polys.forEach(polyCoords => {
+                    mapContext.beginPath();
+                    polyCoords.forEach((ring: any[]) => {
+                        ring.forEach((coord, idx) => {
+                            const px = (coord[0] - extent[0]) / exportRes;
+                            const py = (extent[3] - coord[1]) / exportRes;
+                            if (idx === 0) mapContext.moveTo(px, py);
+                            else mapContext.lineTo(px, py);
+                        });
+                        mapContext.closePath();
+                    });
+                    // Differentiate styles
+                    if (measureSourceRef.current.hasFeature(feature)) {
+                        mapContext.fillStyle = "rgba(255, 255, 255, 0.2)";
+                        mapContext.fill();
+                        mapContext.strokeStyle = "#3b82f6";
+                        mapContext.stroke();
+                    } else if (sourceRef.current.hasFeature(feature)) {
+                         // Selection Box (Red)
+                         // Don't fill, just clip usually, but here we draw bounds?
+                         // The existing code clips using the Selection Polygon.
+                    } else {
+                         // KML/Shapefile polygons
+                         mapContext.strokeStyle = "#f59e0b";
+                         mapContext.lineWidth = 2.5;
+                         mapContext.stroke();
+                    }
+                 });
             }
 
-            coords.forEach(polyCoords => {
-              polyCoords.forEach((ring: any[]) => {
-                ring.forEach((coord, idx) => {
-                  const px = (coord[0] - extent[0]) / exportRes;
-                  const py = (extent[3] - coord[1]) / exportRes;
-                  if (idx === 0) mapContext.moveTo(px, py);
-                  else mapContext.lineTo(px, py);
-                });
-                mapContext.closePath();
-              });
-            });
             // Handle Points
             if (geom instanceof Point) {
                 const coord = geom.getCoordinates();
                 const px = (coord[0] - extent[0]) / exportRes;
                 const py = (extent[3] - coord[1]) / exportRes;
+                mapContext.beginPath();
                 mapContext.moveTo(px + 5, py);
                 mapContext.arc(px, py, 5, 0, 2 * Math.PI);
+                mapContext.fillStyle = "#0ea5e9";
+                mapContext.fill();
             }
           });
-          // Only clip if polygons exist in the drawing source
+          
           if (sourceRef.current.getFeatures().length > 0) mapContext.clip();
           
           const canvases = mapElement.current?.querySelectorAll('.ol-layer canvas');
@@ -444,8 +639,8 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
           mapContext.setTransform(1, 0, 0, 1, 0, 0);
           mapContext.globalAlpha = 1;
           
-          // Redraw points/lines on top to be visible
-          allFeatures.forEach(feature => {
+          // Redraw vectors on top
+           allFeatures.forEach(feature => {
              const geom = feature.getGeometry();
              if (geom instanceof Point) {
                  const coord = geom.getCoordinates();
@@ -520,6 +715,10 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         new VectorLayer({
             source: pointsSourceRef.current,
             style: pointStyle
+        }),
+        new VectorLayer({
+            source: measureSourceRef.current,
+            style: measureStyle,
         }),
         new VectorLayer({
           source: sourceRef.current,

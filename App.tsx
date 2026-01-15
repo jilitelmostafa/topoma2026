@@ -14,7 +14,7 @@ interface ExportData {
 }
 
 type WorkflowStep = 'IDLE' | 'SELECTED' | 'PROCESSING' | 'DONE';
-type ToolType = 'Rectangle' | 'Polygon' | 'Pan' | null;
+type ToolType = 'Rectangle' | 'Polygon' | 'Pan' | 'MeasureLength' | 'MeasureArea' | null;
 type MapType = 'satellite' | 'hybrid';
 
 const SCALES = [
@@ -38,6 +38,20 @@ const ZONES = [
   { code: 'EPSG:26195', label: 'Merchich Zone 4' },
 ];
 
+const LENGTH_UNITS = [
+    { value: 'm', label: 'Mètres (m)' },
+    { value: 'km', label: 'Kilomètres (km)' },
+    { value: 'ft', label: 'Feet (ft)' },
+    { value: 'mi', label: 'Miles (mi)' },
+];
+
+const AREA_UNITS = [
+    { value: 'sqm', label: 'Mètres carrés (m²)' },
+    { value: 'ha', label: 'Hectares (ha)' },
+    { value: 'sqkm', label: 'Kilomètres carrés (km²)' },
+    { value: 'ac', label: 'Acres (ac)' },
+];
+
 const App: React.FC = () => {
   const [exportData, setExportData] = useState<ExportData | null>(null);
   const [step, setStep] = useState<WorkflowStep>('IDLE');
@@ -47,6 +61,9 @@ const App: React.FC = () => {
   const [selectedScale, setSelectedScale] = useState<number>(1000);
   const [mapType, setMapType] = useState<MapType>('satellite');
   
+  // Measurement State
+  const [measureUnit, setMeasureUnit] = useState<string>('m');
+
   // UI Layout State
   const [tocOpen, setTocOpen] = useState(true); // Table of Contents (Left)
   const [toolboxOpen, setToolboxOpen] = useState(false); // Export Tools (Right)
@@ -80,13 +97,34 @@ const App: React.FC = () => {
   const toggleTool = (tool: ToolType) => {
     const newTool = activeTool === tool ? null : tool;
     setActiveTool(newTool);
-    mapComponentRef.current?.setDrawTool(newTool === 'Pan' ? null : newTool);
-    if (newTool && newTool !== 'Pan') {
+    
+    // Set default units when switching tools if necessary
+    if (newTool === 'MeasureLength' && !LENGTH_UNITS.find(u => u.value === measureUnit)) {
+        setMeasureUnit('m');
+    } else if (newTool === 'MeasureArea' && !AREA_UNITS.find(u => u.value === measureUnit)) {
+        setMeasureUnit('sqm');
+    }
+
+    // Pass the tool and current unit to map component
+    if (newTool === 'MeasureLength' || newTool === 'MeasureArea') {
+        mapComponentRef.current?.setMeasureTool(newTool, measureUnit);
+    } else {
+        mapComponentRef.current?.setDrawTool(newTool === 'Pan' ? null : newTool);
+    }
+
+    if (newTool && newTool !== 'Pan' && newTool !== 'MeasureLength' && newTool !== 'MeasureArea') {
         setStep('IDLE');
         setExportData(null);
         setZipBlob(null);
     }
   };
+
+  // Effect to update unit if it changes while tool is active
+  useEffect(() => {
+      if (activeTool === 'MeasureLength' || activeTool === 'MeasureArea') {
+          mapComponentRef.current?.setMeasureTool(activeTool, measureUnit);
+      }
+  }, [measureUnit, activeTool]);
 
   const handleFileClick = (ref: React.RefObject<HTMLInputElement>) => {
       ref.current?.click();
@@ -323,7 +361,7 @@ const App: React.FC = () => {
                </div>
           </div>
 
-          {/* Navigation Tools */}
+          {/* Navigation & Measurement Tools */}
           <div className="flex items-center px-2 border-r border-neutral-300 gap-1">
               <button 
                 onClick={() => toggleTool('Pan')} 
@@ -338,6 +376,39 @@ const App: React.FC = () => {
               <button className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300" title="Zoom Out" onClick={() => mapComponentRef.current?.setMapScale(selectedScale * 2)}>
                   <i className="fas fa-search-minus text-neutral-700"></i>
               </button>
+              
+              {/* Divider */}
+              <div className="w-px h-6 bg-neutral-300 mx-1"></div>
+
+              {/* Measurement Tools */}
+              <button 
+                onClick={() => toggleTool('MeasureLength')} 
+                className={`w-8 h-8 flex items-center justify-center rounded border ${activeTool === 'MeasureLength' ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`} 
+                title="Measure Distance"
+              >
+                  <i className="fas fa-ruler-combined text-neutral-700"></i>
+              </button>
+              <button 
+                onClick={() => toggleTool('MeasureArea')} 
+                className={`w-8 h-8 flex items-center justify-center rounded border ${activeTool === 'MeasureArea' ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`} 
+                title="Measure Area"
+              >
+                  <i className="fas fa-ruler-vertical text-neutral-700"></i>
+              </button>
+              
+              {/* Unit Selector (Visible when measuring) */}
+              {(activeTool === 'MeasureLength' || activeTool === 'MeasureArea') && (
+                  <select 
+                     value={measureUnit}
+                     onChange={(e) => setMeasureUnit(e.target.value)}
+                     className="ml-1 h-6 text-xs border border-neutral-400 rounded px-1 bg-white focus:outline-none"
+                  >
+                      {activeTool === 'MeasureLength' 
+                        ? LENGTH_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
+                        : AREA_UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)
+                      }
+                  </select>
+              )}
           </div>
 
           {/* Drawing/Selection Tools */}
@@ -345,14 +416,14 @@ const App: React.FC = () => {
               <button 
                 onClick={() => toggleTool('Rectangle')} 
                 className={`w-8 h-8 flex items-center justify-center rounded border ${activeTool === 'Rectangle' ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`} 
-                title="Select Rectangle"
+                title="Select Rectangle (Clip)"
               >
                   <i className="far fa-square text-neutral-700"></i>
               </button>
               <button 
                 onClick={() => toggleTool('Polygon')} 
                 className={`w-8 h-8 flex items-center justify-center rounded border ${activeTool === 'Polygon' ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`} 
-                title="Select Polygon"
+                title="Select Polygon (Clip)"
               >
                   <i className="fas fa-draw-polygon text-neutral-700"></i>
               </button>
@@ -645,7 +716,16 @@ const App: React.FC = () => {
       <div className="bg-neutral-200 border-t border-neutral-300 h-6 flex items-center px-2 text-[10px] text-neutral-600 justify-between shrink-0 select-none">
           <div className="flex gap-4">
               <span>{exportData ? `${exportData.lng}, ${exportData.lat}` : 'Ready'}</span>
-              <span>Selected Scale: 1:{selectedScale}</span>
+              <div className="flex items-center gap-1">
+                  <span>Scale:</span>
+                  <select 
+                     value={selectedScale}
+                     onChange={(e) => handleScaleChange(Number(e.target.value))}
+                     className="bg-neutral-200 border-none focus:ring-0 p-0 text-[10px] h-4 cursor-pointer hover:bg-neutral-300 rounded"
+                  >
+                     {SCALES.map(s => <option key={s.value} value={s.value}>1:{s.value}</option>)}
+                  </select>
+              </div>
               <span>Units: Meters</span>
           </div>
           <div>
