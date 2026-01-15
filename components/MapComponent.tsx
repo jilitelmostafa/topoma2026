@@ -44,10 +44,10 @@ interface MapComponentProps {
 }
 
 export interface MapComponentRef {
-  getMapCanvas: (targetScale?: number) => Promise<{ canvas: HTMLCanvasElement, extent: number[] } | null>;
-  loadKML: (file: File) => void;
-  loadShapefile: (file: File) => void;
-  loadDXF: (file: File, zoneCode: string) => void;
+  getMapCanvas: (targetScale?: number, layerId?: string) => Promise<{ canvas: HTMLCanvasElement, extent: number[] } | null>;
+  loadKML: (file: File, layerId: string) => void;
+  loadShapefile: (file: File, layerId: string) => void;
+  loadDXF: (file: File, zoneCode: string, layerId: string) => void;
   loadExcelPoints: (points: Array<{x: number, y: number, label?: string}>) => void;
   addManualPoint: (x: number, y: number, label: string) => void;
   setDrawTool: (type: 'Rectangle' | 'Polygon' | 'Point' | null) => void;
@@ -56,6 +56,7 @@ export interface MapComponentRef {
   clearAll: () => void;
   setMapScale: (scale: number, centerOnSelection?: boolean) => void;
   locateUser: () => void;
+  selectLayer: (layerId: string) => void;
 }
 
 type PopupContent = 
@@ -75,8 +76,8 @@ type PopupContent =
 const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelectionComplete, onMouseMove, selectedZone, mapType }, ref) => {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
-  const sourceRef = useRef<VectorSource>(new VectorSource()); // Clip Boundary
-  const kmlSourceRef = useRef<VectorSource>(new VectorSource()); // Imported Data
+  const sourceRef = useRef<VectorSource>(new VectorSource()); // Clip Boundary (Manual Drawing)
+  const kmlSourceRef = useRef<VectorSource>(new VectorSource()); // Imported Data (Layers)
   const pointsSourceRef = useRef<VectorSource>(new VectorSource()); // Points
   const measureSourceRef = useRef<VectorSource>(new VectorSource()); // Measurements
   const baseLayerRef = useRef<TileLayer<XYZ> | null>(null);
@@ -271,6 +272,22 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       }
   };
 
+  const calculateExtentAndNotify = (features: Feature[], sourceExtent: number[]) => {
+       if (features.length > 0 && mapRef.current) {
+           mapRef.current.getView().fit(sourceExtent, { padding: [50, 50, 50, 50], duration: 800 });
+           const center = [(sourceExtent[0] + sourceExtent[2]) / 2, (sourceExtent[1] + sourceExtent[3]) / 2];
+           const wgs = convertToWGS84(center[0], center[1]);
+           const currentRes = mapRef.current.getView().getResolution() || 1;
+           const scale = calculateScale(currentRes, parseFloat(wgs.lat));
+           const extentPoly = new Polygon([[
+               [sourceExtent[0], sourceExtent[1]], [sourceExtent[0], sourceExtent[3]], [sourceExtent[2], sourceExtent[3]], [sourceExtent[2], sourceExtent[1]], [sourceExtent[0], sourceExtent[1]]
+           ]]);
+           const area = formatAreaMetric(extentPoly, 'sqm');
+           const perimeter = formatLength(extentPoly, 'm');
+           onSelectionComplete({ lat: wgs.lat, lng: wgs.lng, scale: scale, bounds: sourceExtent, area: area, perimeter: perimeter });
+         }
+  };
+
   useImperativeHandle(ref, () => ({
     locateUser: () => {
         if (!navigator.geolocation) {
@@ -325,26 +342,65 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             element.innerHTML = output;
         });
     },
-    loadKML: (file) => { /* Unchanged */
-      // ... same logic for KML
+    selectLayer: (layerId) => {
+        if (!mapRef.current) return;
+        
+        let targetFeatures: Feature[] = [];
+        let extent: number[] | null = null;
+
+        if (layerId === 'manual') {
+            targetFeatures = sourceRef.current.getFeatures();
+            if (targetFeatures.length > 0) extent = sourceRef.current.getExtent();
+        } else {
+            targetFeatures = kmlSourceRef.current.getFeatures().filter(f => f.get('layerId') === layerId);
+            if (targetFeatures.length > 0) {
+                 // Calculate extent manually for subset of features
+                 const firstExtent = targetFeatures[0].getGeometry()?.getExtent();
+                 if (firstExtent) {
+                    extent = [...firstExtent];
+                    for (let i = 1; i < targetFeatures.length; i++) {
+                        const geom = targetFeatures[i].getGeometry();
+                        if (geom) {
+                            const e = geom.getExtent();
+                            if (e[0] < extent[0]) extent[0] = e[0];
+                            if (e[1] < extent[1]) extent[1] = e[1];
+                            if (e[2] > extent[2]) extent[2] = e[2];
+                            if (e[3] > extent[3]) extent[3] = e[3];
+                        }
+                    }
+                 }
+            }
+        }
+
+        if (extent) {
+             calculateExtentAndNotify(targetFeatures, extent);
+        }
+    },
+    loadKML: (file, layerId) => {
       overlayRef.current?.setPosition(undefined);
       const processFeatures = (features: any[]) => {
-         kmlSourceRef.current.clear();
-         sourceRef.current.clear();
+         // Tag features with ID
+         features.forEach(f => f.set('layerId', layerId));
+         
+         // Add to source without clearing existing ones
          kmlSourceRef.current.addFeatures(features);
+         
+         // Calculate extent specifically for these new features
          if (features.length > 0 && mapRef.current) {
-           const extent = kmlSourceRef.current.getExtent();
-           mapRef.current.getView().fit(extent, { padding: [50, 50, 50, 50], duration: 800 });
-           const center = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
-           const wgs = convertToWGS84(center[0], center[1]);
-           const currentRes = mapRef.current.getView().getResolution() || 1;
-           const scale = calculateScale(currentRes, parseFloat(wgs.lat));
-           const extentPoly = new Polygon([[
-               [extent[0], extent[1]], [extent[0], extent[3]], [extent[2], extent[3]], [extent[2], extent[1]], [extent[0], extent[1]]
-           ]]);
-           const area = formatAreaMetric(extentPoly, 'sqm');
-           const perimeter = formatLength(extentPoly, 'm');
-           onSelectionComplete({ lat: wgs.lat, lng: wgs.lng, scale: scale, bounds: extent, area: area, perimeter: perimeter });
+           let extent = features[0].getGeometry()?.getExtent();
+           if(extent) {
+               features.forEach(f => {
+                   const g = f.getGeometry();
+                   if(g) {
+                       const e = g.getExtent();
+                       extent[0] = Math.min(extent[0], e[0]);
+                       extent[1] = Math.min(extent[1], e[1]);
+                       extent[2] = Math.max(extent[2], e[2]);
+                       extent[3] = Math.max(extent[3], e[3]);
+                   }
+               });
+               calculateExtentAndNotify(features, extent);
+           }
          }
       };
       if (file.name.toLowerCase().endsWith('.kmz')) {
@@ -368,8 +424,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
           reader.readAsText(file);
       }
     },
-    loadShapefile: (file) => { /* Unchanged */
-      // ... same logic for SHP
+    loadShapefile: (file, layerId) => {
       overlayRef.current?.setPosition(undefined);
       const reader = new FileReader();
       reader.onload = async (e) => {
@@ -384,26 +439,32 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             } else {
                features = format.readFeatures(geojson, { featureProjection: 'EPSG:3857', dataProjection: 'EPSG:4326' });
             }
-            kmlSourceRef.current.clear();
-            sourceRef.current.clear();
+            
+            features.forEach(f => f.set('layerId', layerId));
             kmlSourceRef.current.addFeatures(features);
+
             if (features.length > 0 && mapRef.current) {
-              const extent = kmlSourceRef.current.getExtent();
-              mapRef.current.getView().fit(extent, { padding: [50, 50, 50, 50], duration: 800 });
-              const center = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
-              const wgs = convertToWGS84(center[0], center[1]);
-              const currentRes = mapRef.current.getView().getResolution() || 1;
-              const scale = calculateScale(currentRes, parseFloat(wgs.lat));
-              const extentPoly = new Polygon([[ [extent[0], extent[1]], [extent[0], extent[3]], [extent[2], extent[3]], [extent[2], extent[1]], [extent[0], extent[1]] ]]);
-               onSelectionComplete({ lat: wgs.lat, lng: wgs.lng, scale: scale, bounds: extent, area: formatAreaMetric(extentPoly, 'sqm'), perimeter: formatLength(extentPoly, 'm') });
+                let extent = features[0].getGeometry()?.getExtent();
+                if(extent) {
+                    features.forEach(f => {
+                        const g = f.getGeometry();
+                        if(g) {
+                            const e = g.getExtent();
+                            extent[0] = Math.min(extent[0], e[0]);
+                            extent[1] = Math.min(extent[1], e[1]);
+                            extent[2] = Math.max(extent[2], e[2]);
+                            extent[3] = Math.max(extent[3], e[3]);
+                        }
+                    });
+                    calculateExtentAndNotify(features, extent);
+                }
             }
           } catch (error: any) {}
         }
       };
       reader.readAsArrayBuffer(file);
     },
-    loadDXF: (file, zoneCode) => { /* Unchanged */
-      // ... same logic for DXF
+    loadDXF: (file, zoneCode, layerId) => {
       overlayRef.current?.setPosition(undefined);
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -433,18 +494,24 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                     }
                 }
             }
-            kmlSourceRef.current.clear();
-            sourceRef.current.clear();
+            features.forEach(f => f.set('layerId', layerId));
             kmlSourceRef.current.addFeatures(features);
+
             if (features.length > 0 && mapRef.current) {
-                const extent = kmlSourceRef.current.getExtent();
-                mapRef.current.getView().fit(extent, { padding: [50, 50, 50, 50], duration: 800 });
-                const center = [(extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2];
-                const wgs = convertToWGS84(center[0], center[1]);
-                const currentRes = mapRef.current.getView().getResolution() || 1;
-                const scale = calculateScale(currentRes, parseFloat(wgs.lat));
-                const extentPoly = new Polygon([[ [extent[0], extent[1]], [extent[0], extent[3]], [extent[2], extent[3]], [extent[2], extent[1]], [extent[0], extent[1]] ]]);
-                onSelectionComplete({ lat: wgs.lat, lng: wgs.lng, scale: scale, bounds: extent, area: formatAreaMetric(extentPoly, 'sqm'), perimeter: formatLength(extentPoly, 'm') });
+                let extent = features[0].getGeometry()?.getExtent();
+                if(extent) {
+                   features.forEach(f => {
+                       const g = f.getGeometry();
+                       if(g) {
+                           const e = g.getExtent();
+                           extent[0] = Math.min(extent[0], e[0]);
+                           extent[1] = Math.min(extent[1], e[1]);
+                           extent[2] = Math.max(extent[2], e[2]);
+                           extent[3] = Math.max(extent[3], e[3]);
+                       }
+                   });
+                   calculateExtentAndNotify(features, extent);
+                }
             }
         } catch (err) {}
       };
@@ -559,7 +626,6 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       draw.on('drawstart', () => { 
         if (type !== 'Point') {
             sourceRef.current.clear(); 
-            kmlSourceRef.current.clear(); 
         }
         overlayRef.current?.setPosition(undefined); 
       });
@@ -626,13 +692,51 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
              if (el.innerHTML.includes('bg-blue-600') || el.innerHTML.includes('bg-black/75')) el.remove();
         });
     },
-    getMapCanvas: async (targetScale) => { /* Unchanged */
+    getMapCanvas: async (targetScale, layerId) => {
       if (!mapRef.current) return null;
       const map = mapRef.current;
-      const allFeatures = [...kmlSourceRef.current.getFeatures(), ...sourceRef.current.getFeatures(), ...pointsSourceRef.current.getFeatures(), ...measureSourceRef.current.getFeatures()];
-      if (allFeatures.length === 0) return null;
-      const extent = sourceRef.current.getFeatures().length > 0 ? sourceRef.current.getExtent() : (kmlSourceRef.current.getFeatures().length > 0 ? kmlSourceRef.current.getExtent() : pointsSourceRef.current.getExtent());
-      if (!extent) return null;
+      
+      let exportFeatures: Feature[] = [];
+      let extent: number[] | null = null;
+      const idToExport = layerId || 'manual';
+
+      // 1. Identify which features to export based on layerId
+      if (idToExport === 'manual') {
+          exportFeatures = sourceRef.current.getFeatures();
+          if (exportFeatures.length > 0) extent = sourceRef.current.getExtent();
+      } else {
+          // It is a specific uploaded layer
+          const allKmlFeatures = kmlSourceRef.current.getFeatures();
+          exportFeatures = allKmlFeatures.filter(f => f.get('layerId') === idToExport);
+          
+          if (exportFeatures.length > 0) {
+                // Calculate extent manually for this subset
+                const firstExtent = exportFeatures[0].getGeometry()?.getExtent();
+                if (firstExtent) {
+                extent = [...firstExtent];
+                for (let i = 1; i < exportFeatures.length; i++) {
+                    const geom = exportFeatures[i].getGeometry();
+                    if (geom) {
+                        const e = geom.getExtent();
+                        if (e[0] < extent[0]) extent[0] = e[0];
+                        if (e[1] < extent[1]) extent[1] = e[1];
+                        if (e[2] > extent[2]) extent[2] = e[2];
+                        if (e[3] > extent[3]) extent[3] = e[3];
+                    }
+                }
+                }
+          }
+      }
+
+      if (!extent || exportFeatures.length === 0) {
+          alert("La couche sélectionnée est vide ou invalide.");
+          return null;
+      }
+
+      // Add points and measurements to context regardless of clipping layer
+      const otherFeatures = [...pointsSourceRef.current.getFeatures(), ...measureSourceRef.current.getFeatures()];
+      const allFeaturesToRender = [...exportFeatures, ...otherFeatures];
+
       const view = map.getView();
       const originalSize = map.getSize();
       const originalRes = view.getResolution();
@@ -642,10 +746,13 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       const exportRes = targetScale ? getResolutionFromScale(targetScale, parseFloat(wgs.lat)) : (originalRes || 1);
       const widthPx = Math.ceil((extent[2] - extent[0]) / exportRes);
       const heightPx = Math.ceil((extent[3] - extent[1]) / exportRes);
+      
       if (widthPx > 16384 || heightPx > 16384) { alert("La zone est trop grande."); return null; }
+      
       map.setSize([widthPx, heightPx]);
       view.setResolution(exportRes);
       view.setCenter(center);
+      
       return new Promise((resolve) => {
         map.once('rendercomplete', () => {
           const mapCanvas = document.createElement('canvas');
@@ -653,15 +760,17 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
           mapCanvas.height = heightPx;
           const mapContext = mapCanvas.getContext('2d');
           if (!mapContext) return resolve(null);
+          
+          // Draw Lines/Polygons
           mapContext.beginPath();
-          allFeatures.forEach(feature => {
+          allFeaturesToRender.forEach(feature => {
             const geom = feature.getGeometry();
              if (geom instanceof LineString) {
                 const lineCoords = geom.getCoordinates();
                 mapContext.beginPath();
                 lineCoords.forEach((coord, idx) => {
-                    const px = (coord[0] - extent[0]) / exportRes;
-                    const py = (extent[3] - coord[1]) / exportRes;
+                    const px = (coord[0] - extent![0]) / exportRes;
+                    const py = (extent![3] - coord[1]) / exportRes;
                     if (idx === 0) mapContext.moveTo(px, py);
                     else mapContext.lineTo(px, py);
                 });
@@ -677,38 +786,55 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                     mapContext.beginPath();
                     polyCoords.forEach((ring: any[]) => {
                         ring.forEach((coord, idx) => {
-                            const px = (coord[0] - extent[0]) / exportRes;
-                            const py = (extent[3] - coord[1]) / exportRes;
+                            const px = (coord[0] - extent![0]) / exportRes;
+                            const py = (extent![3] - coord[1]) / exportRes;
                             if (idx === 0) mapContext.moveTo(px, py);
                             else mapContext.lineTo(px, py);
                         });
                         mapContext.closePath();
                     });
+                    
+                    // Style determination
                     if (measureSourceRef.current.hasFeature(feature)) {
                         mapContext.fillStyle = "rgba(255, 255, 255, 0.2)";
                         mapContext.fill();
                         mapContext.strokeStyle = "#3b82f6";
                         mapContext.stroke();
-                    } else if (sourceRef.current.hasFeature(feature)) {
-                    } else {
+                    } else if (exportFeatures.includes(feature)) {
+                         // The clipping features gets styled (yellow/orange border)
                          mapContext.strokeStyle = "#f59e0b";
                          mapContext.lineWidth = 2.5;
                          mapContext.stroke();
                     }
                  });
             }
-            if (geom instanceof Point) {
-                const coord = geom.getCoordinates();
-                const px = (coord[0] - extent[0]) / exportRes;
-                const py = (extent[3] - coord[1]) / exportRes;
-                mapContext.beginPath();
-                mapContext.moveTo(px + 5, py);
-                mapContext.arc(px, py, 5, 0, 2 * Math.PI);
-                mapContext.fillStyle = "#0ea5e9";
-                mapContext.fill();
-            }
           });
-          if (sourceRef.current.getFeatures().length > 0) mapContext.clip();
+
+          // Clip logic: Create a path from the 'exportFeatures' (the boundary layer)
+          // This ensures we only see map inside the selected layer's shapes
+          if (exportFeatures.length > 0) {
+              mapContext.beginPath();
+               exportFeatures.forEach(feature => {
+                 const geom = feature.getGeometry();
+                 if (geom instanceof Polygon || geom instanceof MultiPolygon) {
+                     const polys = geom instanceof Polygon ? [geom.getCoordinates()] : geom.getCoordinates();
+                     polys.forEach(polyCoords => {
+                        polyCoords.forEach((ring: any[]) => {
+                            ring.forEach((coord, idx) => {
+                                const px = (coord[0] - extent![0]) / exportRes;
+                                const py = (extent![3] - coord[1]) / exportRes;
+                                if (idx === 0) mapContext.moveTo(px, py);
+                                else mapContext.lineTo(px, py);
+                            });
+                            mapContext.closePath();
+                        });
+                     });
+                 }
+               });
+               mapContext.clip();
+          }
+
+          // Draw Raster Layers (Satellite)
           const canvases = mapElement.current?.querySelectorAll('.ol-layer canvas');
           canvases?.forEach((canvas: any) => {
             if (canvas.width > 0) {
@@ -727,12 +853,14 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
           });
           mapContext.setTransform(1, 0, 0, 1, 0, 0);
           mapContext.globalAlpha = 1;
-           allFeatures.forEach(feature => {
+
+          // Draw Points on top
+          otherFeatures.forEach(feature => {
              const geom = feature.getGeometry();
              if (geom instanceof Point) {
                  const coord = geom.getCoordinates();
-                 const px = (coord[0] - extent[0]) / exportRes;
-                 const py = (extent[3] - coord[1]) / exportRes;
+                 const px = (coord[0] - extent![0]) / exportRes;
+                 const py = (extent![3] - coord[1]) / exportRes;
                  mapContext.beginPath();
                  mapContext.arc(px, py, 6, 0, 2 * Math.PI);
                  mapContext.fillStyle = "#0ea5e9";
@@ -742,10 +870,11 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                  mapContext.stroke();
              }
           });
+
           map.setSize(originalSize);
           view.setResolution(originalRes);
           view.setCenter(originalCenter);
-          resolve({ canvas: mapCanvas, extent: extent });
+          resolve({ canvas: mapCanvas, extent: extent! });
         });
         map.renderSync();
       });

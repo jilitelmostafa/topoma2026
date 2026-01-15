@@ -23,6 +23,12 @@ interface ExportResult {
     coords: string;
 }
 
+interface LayerInfo {
+    id: string;
+    name: string;
+    type: 'KML' | 'SHP' | 'DXF' | 'MANUAL';
+}
+
 type WorkflowStep = 'IDLE' | 'SELECTED' | 'PROCESSING' | 'DONE';
 type ToolType = 'Rectangle' | 'Polygon' | 'Point' | 'Pan' | 'MeasureLength' | 'MeasureArea' | null;
 type MapType = 'satellite' | 'hybrid';
@@ -111,7 +117,11 @@ const App: React.FC = () => {
   // Configuration State
   const [selectedZone, setSelectedZone] = useState<string>('EPSG:26191'); 
   const [selectedExcelFile, setSelectedExcelFile] = useState<File | null>(null);
-  const [loadedFiles, setLoadedFiles] = useState<string[]>([]);
+  
+  // Layer Management
+  const [layers, setLayers] = useState<LayerInfo[]>([]);
+  const [selectedLayerId, setSelectedLayerId] = useState<string>('manual');
+
   const [locationName, setLocationName] = useState<string>("location");
   
   // Mouse Coordinates
@@ -149,6 +159,15 @@ const App: React.FC = () => {
     }
   };
 
+  const handleLayerSelect = (layerId: string) => {
+      setSelectedLayerId(layerId);
+      mapComponentRef.current?.selectLayer(layerId);
+      // If manual is selected, verify if there is data, if not set IDLE
+      if (layerId === 'manual' && (!exportData || !exportData.area)) {
+          setStep('IDLE');
+      }
+  };
+
   const toggleTool = (tool: ToolType) => {
     const newTool = activeTool === tool ? null : tool;
     setActiveTool(newTool);
@@ -165,6 +184,12 @@ const App: React.FC = () => {
         mapComponentRef.current?.setMeasureTool(newTool, measureUnit);
     } else {
         mapComponentRef.current?.setDrawTool(newTool === 'Pan' ? null : newTool);
+    }
+
+    // If we select a drawing tool, switch to manual layer
+    if (newTool === 'Rectangle' || newTool === 'Polygon') {
+        setSelectedLayerId('manual');
+        mapComponentRef.current?.selectLayer('manual');
     }
 
     if (newTool && newTool !== 'Pan' && newTool !== 'MeasureLength' && newTool !== 'MeasureArea' && newTool !== 'Point') {
@@ -195,16 +220,21 @@ const App: React.FC = () => {
       if (type !== 'XLS') {
           setActiveTool('Pan'); // Reset to pan
           mapComponentRef.current.setDrawTool(null);
+          
+          // Generate unique ID for the layer
+          const layerId = `layer_${Date.now()}`;
+          const newLayer: LayerInfo = { id: layerId, name: file.name, type };
+          
+          setLayers(prev => [...prev, newLayer]);
+          setSelectedLayerId(layerId); // Select the new layer
+          setToolboxOpen(true); // Open export toolbox
+
+          if (type === 'KML') mapComponentRef.current.loadKML(file, layerId);
+          if (type === 'SHP') mapComponentRef.current.loadShapefile(file, layerId);
+          if (type === 'DXF') mapComponentRef.current.loadDXF(file, selectedZone, layerId);
       }
 
-      if (type === 'KML') mapComponentRef.current.loadKML(file);
-      if (type === 'SHP') mapComponentRef.current.loadShapefile(file);
-      if (type === 'DXF') mapComponentRef.current.loadDXF(file, selectedZone);
       if (type === 'XLS') setSelectedExcelFile(file);
-
-      if (type !== 'XLS') {
-          setLoadedFiles(prev => [...prev, `${type}: ${file.name}`]);
-      }
 
       e.target.value = '';
   };
@@ -263,7 +293,6 @@ const App: React.FC = () => {
 
             if (validPoints.length > 0) {
                 mapComponentRef.current?.loadExcelPoints(validPoints);
-                setLoadedFiles(prev => [...prev, `Points: ${selectedExcelFile.name}`]);
                 setSelectedExcelFile(null); // Clear after load
                 setShowExcelPanel(false); // Close panel
             } else {
@@ -321,7 +350,8 @@ const App: React.FC = () => {
 
     setTimeout(async () => {
         try {
-            const result = await mapComponentRef.current!.getMapCanvas(currentScale);
+            // PASS THE SELECTED LAYER ID HERE
+            const result = await mapComponentRef.current!.getMapCanvas(currentScale, selectedLayerId);
             clearInterval(timer); 
 
             if (!result) throw new Error("Empty Canvas");
@@ -390,7 +420,7 @@ const App: React.FC = () => {
             setStep('IDLE');
             clearInterval(timer);
             console.error(e);
-            alert("Erreur lors du traitement.");
+            alert("Erreur lors du traitement. Vérifiez que la couche sélectionnée est visible.");
         }
     }, 1000);
   };
@@ -401,9 +431,6 @@ const App: React.FC = () => {
     const a = document.createElement('a');
     a.href = url; a.download = fileName; a.click();
     URL.revokeObjectURL(url);
-    // Don't reset everything, just clear selection to allow new selection
-    // Or keep state DONE to allow re-download. 
-    // To match request "Change resolution -> auto generate", we keep step DONE or SELECTED logic
     setStep('DONE'); 
   };
 
@@ -416,7 +443,8 @@ const App: React.FC = () => {
     setActiveTool(null);
     setZipBlob(null);
     setSelectedExcelFile(null);
-    setLoadedFiles([]);
+    setLayers([]);
+    setSelectedLayerId('manual');
     setPointCounter(1);
     setLocationName("location");
   };
@@ -617,8 +645,30 @@ const App: React.FC = () => {
                        </div>
                        <div className="p-3 text-xs space-y-4">
                            
+                           {/* LAYER SELECTION DROPDOWN */}
+                           <div>
+                               <label className="block text-neutral-600 mb-1.5 font-medium">Source de données (Zone):</label>
+                               <div className="relative">
+                                   <select 
+                                      value={selectedLayerId}
+                                      onChange={(e) => handleLayerSelect(e.target.value)}
+                                      className="w-full border border-neutral-300 p-1.5 rounded bg-white text-neutral-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 appearance-none font-medium"
+                                   >
+                                      <option value="manual">✎ Dessin manuel</option>
+                                      {layers.map(layer => (
+                                          <option key={layer.id} value={layer.id}>
+                                              {layer.type}: {layer.name}
+                                          </option>
+                                      ))}
+                                   </select>
+                                   <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-neutral-600">
+                                       <i className="fas fa-chevron-down text-[10px]"></i>
+                                   </div>
+                               </div>
+                           </div>
+
                            {/* --- INFO PANEL FOR SELECTED GEOMETRY --- */}
-                           {step === 'SELECTED' && exportData && (
+                           {(step === 'SELECTED' || (step === 'IDLE' && selectedLayerId !== 'manual')) && exportData && (
                                <div className="bg-blue-50 border border-blue-200 rounded p-2 text-[11px] text-blue-900 space-y-1">
                                    <div className="font-bold flex items-center gap-1 border-b border-blue-200 pb-1 mb-1">
                                        <i className="fas fa-info-circle"></i> Info Élément
@@ -661,7 +711,7 @@ const App: React.FC = () => {
                            <div className="border border-neutral-200 p-3 bg-neutral-50 min-h-[160px] flex flex-col items-center justify-center text-center rounded relative overflow-hidden">
                                {step === 'IDLE' && <span className="text-neutral-400 italic">Sélectionnez une zone...</span>}
                                
-                               {step === 'SELECTED' && exportData && (
+                               {(step === 'SELECTED' || (selectedLayerId !== 'manual' && exportData)) && (
                                    <>
                                      <div className="text-green-600 font-bold mb-3 flex items-center gap-1"><i className="fas fa-check-circle"></i> Prêt pour le traitement</div>
                                      <button onClick={() => startClipping()} className="bg-blue-600 border border-blue-700 text-white px-6 py-2 rounded hover:bg-blue-700 shadow-md transition-all font-bold flex items-center gap-2">
@@ -719,8 +769,21 @@ const App: React.FC = () => {
                        </div>
                    </div>
 
-                   <div className="text-[10px] text-neutral-400 text-center mt-6 leading-tight">
-                       GeoMapper Pro v1.4 <br/> Compatible with ArcGIS / QGIS
+                   <div className="mt-6 border-t border-neutral-200 pt-4 text-center pb-4">
+                       <div className="text-[10px] text-neutral-500 font-bold mb-3">
+                           GeoMapper Pro v1.4 <br/> Compatible with ArcGIS / QGIS
+                       </div>
+                       
+                       <div className="flex justify-center gap-4 text-neutral-400 mb-3">
+                           <a href="#" className="hover:text-blue-600 transition-colors transform hover:scale-110"><i className="fab fa-facebook text-sm"></i></a>
+                           <a href="#" className="hover:text-blue-400 transition-colors transform hover:scale-110"><i className="fab fa-twitter text-sm"></i></a>
+                           <a href="#" className="hover:text-blue-700 transition-colors transform hover:scale-110"><i className="fab fa-linkedin text-sm"></i></a>
+                           <a href="#" className="hover:text-pink-600 transition-colors transform hover:scale-110"><i className="fab fa-instagram text-sm"></i></a>
+                       </div>
+
+                       <div className="text-[9px] text-neutral-400">
+                           &copy; {new Date().getFullYear()} GeoMapper Pro. <br/> Tous droits réservés.
+                       </div>
                    </div>
               </div>
           </div>
@@ -805,10 +868,10 @@ const App: React.FC = () => {
                 selectedZone={selectedZone}
                 onMouseMove={(x, y) => setMouseCoords({x, y})}
                 onSelectionComplete={(data) => {
-                  setExportData({ ...data, projection: selectedZone }); // Include projection
+                  setExportData({ ...data, projection: selectedZone }); 
                   setStep('SELECTED');
                   setActiveTool(null);
-                  setToolboxOpen(true);
+                  if (selectedLayerId === 'manual') setToolboxOpen(true);
                 }} 
               />
           </div>
@@ -835,10 +898,12 @@ const App: React.FC = () => {
                                   <span className="text-neutral-700">Etiquettes</span>
                               </div>
                           </div>
-                          {loadedFiles.map((file, idx) => (
-                              <div key={idx} className="flex items-center gap-2">
+                          {layers.map((layer) => (
+                              <div key={layer.id} className="flex items-center gap-2">
                                   <input type="checkbox" checked readOnly className="cursor-pointer accent-blue-600" />
-                                  <span className="truncate" title={file}>{file}</span>
+                                  <span className={`truncate cursor-pointer ${selectedLayerId === layer.id ? 'font-bold text-blue-700' : ''}`} onClick={() => handleLayerSelect(layer.id)} title={layer.name}>
+                                    {layer.type}: {layer.name}
+                                  </span>
                               </div>
                           ))}
                       </div>
