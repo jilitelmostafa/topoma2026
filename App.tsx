@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import MapComponent, { MapComponentRef } from './components/MapComponent';
 import proj4 from 'proj4';
@@ -112,7 +111,7 @@ const App: React.FC = () => {
     } catch (e) {
       setStep('IDLE');
       console.error(e);
-      alert("حدث خطأ أثناء معالجة البيانات الجيومكانية.");
+      alert("Une erreur s'est produite lors du traitement des données géospatiales.");
     }
   };
 
@@ -137,8 +136,8 @@ const App: React.FC = () => {
 
   return (
     <div className="w-screen h-screen flex bg-slate-950 text-white font-sans overflow-hidden">
-      {/* Sidebar - Right Side */}
-      <div className="w-96 bg-slate-900/80 backdrop-blur-3xl border-l border-white/10 flex flex-col p-6 z-20 shadow-[-20px_0_60px_rgba(0,0,0,0.8)]">
+      {/* Sidebar - Left Side (due to LTR) */}
+      <div className="w-96 bg-slate-900/80 backdrop-blur-3xl border-r border-white/10 flex flex-col p-6 z-20 shadow-[20px_0_60px_rgba(0,0,0,0.8)]">
         <div className="flex items-center gap-4 mb-8">
           <div className="w-14 h-14 bg-indigo-600 rounded-[22px] flex items-center justify-center text-3xl shadow-2xl shadow-indigo-500/30 border border-indigo-400/20">
             <i className="fas fa-satellite-dish"></i>
@@ -152,42 +151,42 @@ const App: React.FC = () => {
         <div className="space-y-6 flex-grow overflow-y-auto no-scrollbar">
           {/* Map Layer Settings */}
           <div className="bg-slate-800/40 p-5 rounded-3xl border border-white/5 space-y-4">
-             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">طبقة الخريطة الأساسية</label>
+             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-1">Fond de Plan</label>
              <div className="flex bg-slate-950 p-1.5 rounded-2xl border border-white/5">
                 <button 
                   onClick={() => setMapType('satellite')}
                   className={`flex-1 py-3 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-2 ${mapType === 'satellite' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}
                 >
                   <i className="fas fa-globe"></i>
-                  بدون أسماء
+                  Satellite
                 </button>
                 <button 
                   onClick={() => setMapType('hybrid')}
                   className={`flex-1 py-3 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-2 ${mapType === 'hybrid' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}
                 >
                   <i className="fas fa-map-marked-alt"></i>
-                  مع الأسماء
+                  Hybride
                 </button>
              </div>
           </div>
 
           {/* Drawing Tools */}
           <div>
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-4 border-b border-white/5 pb-2">أدوات التحديد الجغرافي</label>
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-4 border-b border-white/5 pb-2">Outils de Sélection</label>
             <div className="grid grid-cols-2 gap-3">
               <button 
                 onClick={() => toggleTool('Rectangle')}
                 className={`p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 ${activeTool === 'Rectangle' ? 'bg-red-600 border-red-400 shadow-xl' : 'bg-slate-800/40 border-white/5 hover:bg-slate-800'}`}
               >
                 <i className="fas fa-square-full text-xl"></i>
-                <span className="text-[11px] font-bold">مستطيل</span>
+                <span className="text-[11px] font-bold">Rectangle</span>
               </button>
               <button 
                 onClick={() => toggleTool('Polygon')}
                 className={`p-4 rounded-2xl border transition-all flex flex-col items-center gap-2 ${activeTool === 'Polygon' ? 'bg-red-600 border-red-400 shadow-xl' : 'bg-slate-800/40 border-white/5 hover:bg-slate-800'}`}
               >
                 <i className="fas fa-draw-polygon text-xl"></i>
-                <span className="text-[11px] font-bold">مضلع حر</span>
+                <span className="text-[11px] font-bold">Polygone</span>
               </button>
             </div>
           </div>
@@ -200,13 +199,13 @@ const App: React.FC = () => {
               className="w-full bg-slate-800/50 hover:bg-slate-700 text-white border border-white/10 py-5 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all active:scale-95"
             >
               <i className="fas fa-file-import text-lg text-amber-500"></i>
-              <span>رفع ملف KML للقص</span>
+              <span>Importer fichier KML</span>
             </button>
           </div>
 
           {/* Scale Selection & Map Zoom Control */}
           <div className="pt-4 p-5 bg-indigo-500/5 rounded-3xl border border-indigo-500/10 animate-in fade-in duration-700">
-            <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-4">دقة الخريطة والتصدير</label>
+            <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest block mb-4">Échelle et Exportation</label>
             <div className="relative group">
               <select 
                 value={selectedScale}
@@ -215,7 +214,7 @@ const App: React.FC = () => {
               >
                 {SCALES.map(s => <option key={s.value} value={s.value} className="bg-slate-900 text-white">{s.label}</option>)}
               </select>
-              <div className="absolute left-5 top-1/2 -translate-y-1/2 pointer-events-none text-indigo-400">
+              <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-indigo-400">
                 <i className="fas fa-search-location"></i>
               </div>
             </div>
@@ -225,7 +224,7 @@ const App: React.FC = () => {
           <div className="pt-6 border-t border-white/10">
             {step === 'IDLE' && (
               <div className="bg-slate-800/20 rounded-3xl p-6 text-center border border-white/5">
-                <p className="text-slate-400 text-xs font-bold leading-relaxed">بانتظار رسم أو رفع حدود المنطقة...</p>
+                <p className="text-slate-400 text-xs font-bold leading-relaxed">En attente de dessin ou d'importation...</p>
               </div>
             )}
 
@@ -234,7 +233,7 @@ const App: React.FC = () => {
                 <div className="bg-indigo-600/10 rounded-3xl p-6 border border-indigo-500/20 shadow-inner">
                   <h3 className="text-indigo-400 font-black text-[10px] uppercase tracking-wider mb-4 flex items-center gap-2">
                     <i className="fas fa-info-circle"></i>
-                    بيانات المنطقة المحددة
+                    Données de la Zone
                   </h3>
                   <div className="grid grid-cols-2 gap-4 text-[11px]">
                     <div className="bg-slate-950 p-3 rounded-xl border border-white/5">
@@ -251,8 +250,8 @@ const App: React.FC = () => {
                   onClick={startClipping}
                   className="w-full bg-indigo-600 hover:bg-indigo-700 py-6 rounded-3xl font-black text-lg shadow-2xl shadow-indigo-600/40 flex items-center justify-center gap-4 transition-all active:scale-95 group"
                 >
-                  <i className="fas fa-scissors group-hover:rotate-45 transition-transform"></i>
-                  <span>قص وتصدير SIG</span>
+                  <i className="fas fa-scissors group-hover:-rotate-45 transition-transform"></i>
+                  <span>Exporter SIG (GeoTIFF)</span>
                 </button>
               </div>
             )}
@@ -267,8 +266,8 @@ const App: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold">جاري الرندرة العالية</h3>
-                  <p className="text-slate-400 text-sm mt-2">يتم سحب البيانات بمقياس 1:{selectedScale}</p>
+                  <h3 className="text-xl font-bold">Traitement en cours</h3>
+                  <p className="text-slate-400 text-sm mt-2">Extraction à l'échelle 1:{selectedScale}</p>
                 </div>
               </div>
             )}
@@ -279,7 +278,7 @@ const App: React.FC = () => {
                   <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
                      <i className="fas fa-check-circle text-3xl text-emerald-500"></i>
                   </div>
-                  <h3 className="text-xl font-black text-white uppercase">الحزمة جاهزة</h3>
+                  <h3 className="text-xl font-black text-white uppercase">Package Prêt</h3>
                   <p className="text-slate-400 text-xs mt-2 font-medium">1:{selectedScale} | TIF + TFW + PRJ</p>
                 </div>
                 <button 
@@ -287,7 +286,7 @@ const App: React.FC = () => {
                   className="w-full bg-emerald-600 hover:bg-emerald-700 py-6 rounded-3xl font-black text-lg shadow-2xl shadow-emerald-600/40 flex items-center justify-center gap-4 transition-all active:scale-95"
                 >
                   <i className="fas fa-download text-xl"></i>
-                  <span>تنزيل الملف (ZIP)</span>
+                  <span>Télécharger (ZIP)</span>
                 </button>
               </div>
             )}
@@ -299,7 +298,7 @@ const App: React.FC = () => {
             onClick={resetAll}
             className="w-full text-slate-500 hover:text-red-400 py-4 text-[10px] font-black uppercase tracking-[0.3em] transition-colors flex items-center justify-center gap-2"
            >
-             <i className="fas fa-undo-alt"></i> مسح الخريطة والبدء من جديد
+             <i className="fas fa-undo-alt"></i> Réinitialiser la carte
            </button>
         </div>
       </div>
@@ -321,8 +320,8 @@ const App: React.FC = () => {
           <div className="flex items-center gap-4">
              <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.5)]"></div>
              <div className="flex flex-col">
-               <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">System Ready</span>
-               <span className="text-[8px] text-slate-500 font-bold">{mapType === 'satellite' ? 'Satellite View' : 'Hybrid View'}</span>
+               <span className="text-[10px] font-black uppercase tracking-widest text-emerald-500">Système Prêt</span>
+               <span className="text-[8px] text-slate-500 font-bold">{mapType === 'satellite' ? 'Vue Satellite' : 'Vue Hybride'}</span>
              </div>
           </div>
           <div className="h-6 w-px bg-white/10"></div>
@@ -331,7 +330,7 @@ const App: React.FC = () => {
                <i className="fas fa-expand text-sm"></i>
              </div>
              <div className="flex flex-col">
-               <span className="text-[10px] font-black uppercase tracking-widest text-white">Target Scale</span>
+               <span className="text-[10px] font-black uppercase tracking-widest text-white">Échelle Cible</span>
                <span className="text-[10px] text-indigo-400 font-black">1:{selectedScale}</span>
              </div>
           </div>
@@ -342,7 +341,6 @@ const App: React.FC = () => {
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         option { padding: 12px; background: #0f172a; font-weight: bold; }
-        select { direction: ltr; }
       `}</style>
     </div>
   );

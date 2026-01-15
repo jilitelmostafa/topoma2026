@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
 import Map from 'ol/Map';
 import View from 'ol/View';
@@ -135,7 +134,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       const heightPx = Math.ceil((extent[3] - extent[1]) / exportRes);
 
       if (widthPx > 16384 || heightPx > 16384) {
-        alert("المساحة كبيرة جداً بالنسبة لهذه الدقة، يرجى اختيار مقياس أكبر (مثلاً 1:2500).");
+        alert("La zone est trop grande pour cette résolution, veuillez choisir une échelle plus grande (ex: 1:2500).");
         return null;
       }
 
