@@ -191,9 +191,9 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       const proj = projectToZone(lon, lat, zoneCode);
       
       const zoneLabel = zoneCode === 'EPSG:4326' ? 'WGS 84' : 
-                        zoneCode === 'EPSG:26191' ? 'Zone 1' :
-                        zoneCode === 'EPSG:26192' ? 'Zone 2' :
-                        zoneCode === 'EPSG:26194' ? 'Zone 3' : 'Zone 4';
+                        zoneCode === 'EPSG:26191' ? 'Zone 1 (Nord Maroc)' :
+                        zoneCode === 'EPSG:26192' ? 'Zone 2 (Sud Maroc)' :
+                        zoneCode === 'EPSG:26194' ? 'Zone 3 (Sahara Nord)' : 'Zone 4 (Sahara Sud)';
 
       // Set Initial state with Loading Z
       setPopupContent({

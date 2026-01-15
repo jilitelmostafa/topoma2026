@@ -74,10 +74,10 @@ const MAP_SCALES = [
 
 const ZONES = [
   { code: 'EPSG:4326', label: 'WGS 84' },
-  { code: 'EPSG:26191', label: 'Merchich Zone 1' },
-  { code: 'EPSG:26192', label: 'Merchich Zone 2' },
-  { code: 'EPSG:26194', label: 'Merchich Zone 3' },
-  { code: 'EPSG:26195', label: 'Merchich Zone 4' },
+  { code: 'EPSG:26191', label: 'Zone 1 (Nord Maroc)' },
+  { code: 'EPSG:26192', label: 'Zone 2 (Sud Maroc)' },
+  { code: 'EPSG:26194', label: 'Zone 3 (Sahara Nord)' },
+  { code: 'EPSG:26195', label: 'Zone 4 (Sahara Sud)' },
 ];
 
 const LENGTH_UNITS = [
@@ -770,19 +770,21 @@ const App: React.FC = () => {
                    </div>
 
                    <div className="mt-6 border-t border-neutral-200 pt-4 text-center pb-4">
-                       <div className="text-[10px] text-neutral-500 font-bold mb-3">
-                           GeoMapper Pro v1.4 <br/> Compatible with ArcGIS / QGIS
+                       <div className="text-[11px] text-neutral-600 font-bold mb-3 leading-relaxed">
+                           réalisé par Jilit Mostafa <br/>
+                           jilitsig@gmail.com | +212 668 09 02 85 📞
                        </div>
                        
-                       <div className="flex justify-center gap-4 text-neutral-400 mb-3">
-                           <a href="#" className="hover:text-blue-600 transition-colors transform hover:scale-110"><i className="fab fa-facebook text-sm"></i></a>
-                           <a href="#" className="hover:text-blue-400 transition-colors transform hover:scale-110"><i className="fab fa-twitter text-sm"></i></a>
-                           <a href="#" className="hover:text-blue-700 transition-colors transform hover:scale-110"><i className="fab fa-linkedin text-sm"></i></a>
-                           <a href="#" className="hover:text-pink-600 transition-colors transform hover:scale-110"><i className="fab fa-instagram text-sm"></i></a>
+                       <div className="flex justify-center gap-4 text-lg mb-3">
+                           <a href="https://facebook.com/Jilitelmostafa" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:scale-110 transition-transform"><i className="fab fa-facebook"></i></a>
+                           <a href="https://instagram.com/jilitsig" target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:scale-110 transition-transform"><i className="fab fa-instagram"></i></a>
+                           <a href="https://www.linkedin.com/in/Jilitelmostafa" target="_blank" rel="noopener noreferrer" className="text-blue-700 hover:scale-110 transition-transform"><i className="fab fa-linkedin"></i></a>
+                           <a href="https://x.com/jilitmostafa" target="_blank" rel="noopener noreferrer" className="text-black hover:scale-110 transition-transform"><i className="fab fa-x-twitter"></i></a>
+                           <a href="https://wa.me/212668090285" target="_blank" rel="noopener noreferrer" className="text-green-500 hover:scale-110 transition-transform"><i className="fab fa-whatsapp"></i></a>
                        </div>
 
-                       <div className="text-[9px] text-neutral-400">
-                           &copy; {new Date().getFullYear()} GeoMapper Pro. <br/> Tous droits réservés.
+                       <div className="text-[10px] text-neutral-400">
+                           Version 1.0 | © 2026 Tous droits réservés
                        </div>
                    </div>
               </div>
