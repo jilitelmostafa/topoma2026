@@ -50,6 +50,7 @@ const App: React.FC = () => {
   // UI Layout State
   const [tocOpen, setTocOpen] = useState(true); // Table of Contents (Left)
   const [toolboxOpen, setToolboxOpen] = useState(false); // Export Tools (Right)
+  const [showGoToPanel, setShowGoToPanel] = useState(false); // Floating "Go To XY" Panel
   
   // Configuration State
   const [selectedZone, setSelectedZone] = useState<string>('EPSG:26191'); 
@@ -195,6 +196,7 @@ const App: React.FC = () => {
     setPointCounter(prev => prev + 1);
     setManualX("");
     setManualY("");
+    // Optional: close panel or keep open for multiple points
   };
 
   const startClipping = async () => {
@@ -368,39 +370,7 @@ const App: React.FC = () => {
       </div>
 
       {/* --- 2. COMMAND BAR (Coordinates & Projection) --- */}
-      <div className="bg-neutral-200 border-b border-neutral-300 p-1 flex flex-col md:flex-row items-center gap-2 px-2 shrink-0 h-auto md:h-10 text-xs">
-          <span className="font-bold text-neutral-600 uppercase">Go To XY:</span>
-          
-          <select 
-             value={selectedZone}
-             onChange={(e) => setSelectedZone(e.target.value)}
-             className="border border-neutral-400 rounded-none px-2 py-1 bg-white focus:outline-none h-6 w-full md:w-40"
-          >
-             {ZONES.map(z => <option key={z.code} value={z.code}>{z.label}</option>)}
-          </select>
-
-          <input 
-             type="text" 
-             placeholder="Easting (X)" 
-             value={manualX}
-             onChange={(e) => setManualX(e.target.value)}
-             className="border border-neutral-400 px-2 py-1 w-full md:w-32 focus:outline-none h-6"
-          />
-          <input 
-             type="text" 
-             placeholder="Northing (Y)" 
-             value={manualY}
-             onChange={(e) => setManualY(e.target.value)}
-             className="border border-neutral-400 px-2 py-1 w-full md:w-32 focus:outline-none h-6"
-          />
-          <button 
-             onClick={handleManualAddPoint}
-             className="bg-neutral-300 hover:bg-neutral-400 border border-neutral-400 px-3 h-6 flex items-center justify-center"
-             title="Add Point"
-          >
-             <i className="fas fa-map-pin text-neutral-700"></i>
-          </button>
-
+      <div className="bg-neutral-200 border-b border-neutral-300 p-1 flex flex-col md:flex-row items-center gap-2 px-2 shrink-0 h-auto md:h-8 text-xs">
           <div className="flex-grow"></div>
           
           <span className="font-bold text-neutral-600 mr-2">Scale:</span>
@@ -483,6 +453,68 @@ const App: React.FC = () => {
 
           {/* CENTER: MAP CANVAS */}
           <div className="flex-grow relative bg-white">
+              {/* Floating Go To XY Tool */}
+              <div className="absolute top-2 right-2 z-30 flex flex-col items-end pointer-events-none">
+                  <button 
+                    onClick={() => setShowGoToPanel(!showGoToPanel)}
+                    className="pointer-events-auto w-10 h-10 bg-white rounded-lg shadow-md border border-neutral-300 hover:bg-neutral-50 flex items-center justify-center text-neutral-700 transition-colors"
+                    title="Go To XY"
+                  >
+                      <i className="fas fa-map-marker-alt text-lg text-red-600"></i>
+                  </button>
+
+                  {/* Popup Panel */}
+                  <div className={`pointer-events-auto mt-2 bg-white rounded-lg shadow-xl border border-neutral-300 p-3 w-64 transition-all duration-200 origin-top-right ${showGoToPanel ? 'scale-100 opacity-100' : 'scale-90 opacity-0 hidden'}`}>
+                      <div className="flex justify-between items-center mb-2 border-b border-neutral-100 pb-1">
+                          <span className="text-xs font-bold text-neutral-700">Aller à XY</span>
+                          <button onClick={() => setShowGoToPanel(false)} className="text-neutral-400 hover:text-neutral-600"><i className="fas fa-times"></i></button>
+                      </div>
+                      
+                      <div className="space-y-2">
+                          <div>
+                              <label className="block text-[10px] text-neutral-500 mb-0.5">Projection</label>
+                              <select 
+                                 value={selectedZone}
+                                 onChange={(e) => setSelectedZone(e.target.value)}
+                                 className="w-full text-xs border border-neutral-300 rounded p-1 bg-neutral-50 focus:outline-none focus:border-blue-400"
+                              >
+                                 {ZONES.map(z => <option key={z.code} value={z.code}>{z.label}</option>)}
+                              </select>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                  <label className="block text-[10px] text-neutral-500 mb-0.5">X (Easting)</label>
+                                  <input 
+                                     type="text" 
+                                     value={manualX}
+                                     onChange={(e) => setManualX(e.target.value)}
+                                     className="w-full text-xs border border-neutral-300 rounded p-1 focus:outline-none focus:border-blue-400"
+                                     placeholder="000000"
+                                  />
+                              </div>
+                              <div>
+                                  <label className="block text-[10px] text-neutral-500 mb-0.5">Y (Northing)</label>
+                                  <input 
+                                     type="text" 
+                                     value={manualY}
+                                     onChange={(e) => setManualY(e.target.value)}
+                                     className="w-full text-xs border border-neutral-300 rounded p-1 focus:outline-none focus:border-blue-400"
+                                     placeholder="000000"
+                                  />
+                              </div>
+                          </div>
+
+                          <button 
+                             onClick={handleManualAddPoint}
+                             className="w-full bg-blue-600 text-white text-xs py-1.5 rounded hover:bg-blue-700 transition-colors flex items-center justify-center gap-1 font-medium"
+                          >
+                             <i className="fas fa-location-arrow text-[10px]"></i> Localiser
+                          </button>
+                      </div>
+                  </div>
+              </div>
+
               <MapComponent 
                 ref={mapComponentRef} 
                 mapType={mapType}
