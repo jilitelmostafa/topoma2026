@@ -124,6 +124,29 @@ export const fetchLocationName = async (lat: number, lon: number): Promise<strin
     }
 };
 
+export interface SearchResult {
+    place_id: number;
+    display_name: string;
+    lat: string;
+    lon: string;
+    icon?: string;
+}
+
+// Search Places (Nominatim)
+export const searchPlaces = async (query: string): Promise<SearchResult[]> => {
+    try {
+        if (!query || query.length < 3) return [];
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&addressdetails=1`, {
+            headers: { 'User-Agent': 'GeoMapperPro/1.0' }
+        });
+        const data = await response.json();
+        return data;
+    } catch (e) {
+        console.error("Search failed", e);
+        return [];
+    }
+};
+
 // Fetch Elevation (Z)
 export const fetchElevation = async (lat: number, lon: number): Promise<number> => {
     try {

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import MapComponent, { MapComponentRef } from './components/MapComponent';
-import { projectFromZone, fetchLocationName } from './services/geoService';
+import { projectFromZone, fetchLocationName, searchPlaces, SearchResult } from './services/geoService';
 
 declare const UTIF: any;
 declare const JSZip: any;
@@ -114,6 +114,11 @@ const App: React.FC = () => {
   const [showGoToPanel, setShowGoToPanel] = useState(false); // Floating "Go To XY" Panel (Now Dropdown from Top)
   const [showExcelPanel, setShowExcelPanel] = useState(false); // Floating "Excel Import" Panel
   const [showExcelHelp, setShowExcelHelp] = useState(false); // Lightbox for Excel Help
+  
+  // Search State
+  const [showSearchPanel, setShowSearchPanel] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   
   // Configuration State
   const [selectedZone, setSelectedZone] = useState<string>('EPSG:26191'); 
@@ -330,6 +335,27 @@ const App: React.FC = () => {
     setManualY("");
   };
 
+  // Search Logic
+  const handleSearchInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value;
+      setSearchQuery(val);
+      if (val.length > 2) {
+          const results = await searchPlaces(val);
+          setSearchResults(results);
+      } else {
+          setSearchResults([]);
+      }
+  };
+
+  const handleSelectSearchResult = (result: SearchResult) => {
+      if (mapComponentRef.current) {
+          mapComponentRef.current.flyToLocation(parseFloat(result.lon), parseFloat(result.lat), 16);
+      }
+      setSearchResults([]);
+      setSearchQuery("");
+      setShowSearchPanel(false);
+  };
+
   const startClipping = async (scaleOverride?: number) => {
     if (!mapComponentRef.current || !exportData) return;
     
@@ -448,6 +474,8 @@ const App: React.FC = () => {
     setSelectedLayerId('manual');
     setPointCounter(1);
     setLocationName("location");
+    setSearchQuery("");
+    setSearchResults([]);
   };
 
   return (
@@ -503,7 +531,7 @@ const App: React.FC = () => {
               {/* Go To XY Tool */}
               <div className="relative">
                   <button 
-                    onClick={() => { setShowGoToPanel(!showGoToPanel); setShowExcelPanel(false); }}
+                    onClick={() => { setShowGoToPanel(!showGoToPanel); setShowExcelPanel(false); setShowSearchPanel(false); }}
                     className={`h-8 px-2 flex items-center justify-center rounded border transition-colors ${showGoToPanel ? 'bg-neutral-200 border-neutral-400' : 'hover:bg-neutral-200 border-transparent hover:border-neutral-300'}`}
                     title="Go To XY"
                   >
@@ -571,7 +599,7 @@ const App: React.FC = () => {
               {/* Measurement Section - MOBILE (Single Icon with Dropdown) */}
               <div className="md:hidden relative ml-1">
                   <button 
-                    onClick={() => { setShowMobileMeasureMenu(!showMobileMeasureMenu); setShowGoToPanel(false); }}
+                    onClick={() => { setShowMobileMeasureMenu(!showMobileMeasureMenu); setShowGoToPanel(false); setShowSearchPanel(false); }}
                     className={`h-8 px-2 flex items-center justify-center rounded border transition-colors bg-yellow-50/50 ${(activeTool === 'MeasureLength' || activeTool === 'MeasureArea' || showMobileMeasureMenu) ? 'bg-yellow-200 border-yellow-400' : 'hover:bg-yellow-100 border-transparent'}`}
                     title="Mesures"
                   >
@@ -610,10 +638,60 @@ const App: React.FC = () => {
 
           {/* RIGHT: Table of Contents Toggle (Desktop) & Map Layer Switch (Mobile) */}
           <div className="flex items-center px-2 gap-1 ml-auto">
+               
+               {/* SEARCH WIDGET (Placed before Layer Switcher) */}
+               <div className="relative">
+                  <button 
+                    onClick={() => { setShowSearchPanel(!showSearchPanel); setShowGoToPanel(false); setShowMobileMeasureMenu(false); }}
+                    className={`h-8 w-8 flex items-center justify-center rounded border transition-colors ${showSearchPanel ? 'bg-blue-100 border-blue-300 text-blue-700' : 'hover:bg-neutral-200 border-transparent text-neutral-600'}`}
+                    title="Rechercher"
+                  >
+                      <i className="fas fa-search"></i>
+                  </button>
+
+                  {showSearchPanel && (
+                      <div className="absolute top-full right-0 mt-1 bg-white rounded-lg shadow-xl border border-neutral-300 w-64 z-50 overflow-hidden">
+                          <div className="p-2 border-b border-neutral-100 bg-neutral-50 flex items-center gap-2">
+                              <i className="fas fa-search text-neutral-400 text-xs"></i>
+                              <input 
+                                autoFocus 
+                                type="text" 
+                                className="w-full bg-transparent text-xs outline-none text-neutral-700 placeholder-neutral-400" 
+                                placeholder="Rechercher un lieu (OSM)..." 
+                                value={searchQuery}
+                                onChange={handleSearchInput}
+                              />
+                              {searchQuery && (
+                                <button onClick={() => { setSearchQuery(""); setSearchResults([]); }} className="text-neutral-400 hover:text-red-500">
+                                    <i className="fas fa-times text-xs"></i>
+                                </button>
+                              )}
+                          </div>
+                          {searchResults.length > 0 ? (
+                              <ul className="max-h-60 overflow-y-auto">
+                                  {searchResults.map((result) => (
+                                      <li key={result.place_id}>
+                                          <button 
+                                            onClick={() => handleSelectSearchResult(result)}
+                                            className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 border-b border-neutral-100 last:border-0 flex flex-col gap-0.5"
+                                          >
+                                              <span className="font-bold text-neutral-700 truncate w-full">{result.display_name.split(',')[0]}</span>
+                                              <span className="text-[10px] text-neutral-500 truncate w-full">{result.display_name}</span>
+                                          </button>
+                                      </li>
+                                  ))}
+                              </ul>
+                          ) : (
+                              searchQuery.length > 2 && <div className="p-3 text-center text-xs text-neutral-400 italic">Aucun résultat trouvé.</div>
+                          )}
+                      </div>
+                  )}
+               </div>
+
                {/* Desktop TOC Button */}
                <button 
                 onClick={() => setTocOpen(!tocOpen)}
-                className={`hidden md:flex h-8 px-3 items-center gap-2 rounded border ${tocOpen ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`}
+                className={`hidden md:flex h-8 px-3 items-center gap-2 rounded border ml-1 ${tocOpen ? 'bg-neutral-300 border-neutral-400' : 'hover:bg-neutral-200 border-transparent'}`}
                >
                    <i className="fas fa-list"></i> <span className="text-xs font-bold">Couches</span>
                </button>
@@ -621,7 +699,7 @@ const App: React.FC = () => {
                {/* Mobile Layer Switcher (Simple Toggle) */}
                <button 
                   onClick={() => setMapType(prev => prev === 'satellite' ? 'hybrid' : 'satellite')}
-                  className="md:hidden h-8 w-8 flex items-center justify-center rounded border border-neutral-300 bg-white hover:bg-neutral-100 text-neutral-700 shadow-sm"
+                  className="md:hidden h-8 w-8 flex items-center justify-center rounded border border-neutral-300 bg-white hover:bg-neutral-100 text-neutral-700 shadow-sm ml-1"
                   title="Switch Map Layer"
                >
                    <i className={`fas ${mapType === 'satellite' ? 'fa-globe-americas' : 'fa-map'}`}></i>
@@ -799,7 +877,7 @@ const App: React.FC = () => {
                   {/* Tool: Excel Import */}
                   <div className="relative flex flex-col items-end">
                       <button 
-                        onClick={() => { setShowExcelPanel(!showExcelPanel); setShowGoToPanel(false); }}
+                        onClick={() => { setShowExcelPanel(!showExcelPanel); setShowGoToPanel(false); setShowSearchPanel(false); }}
                         className="pointer-events-auto w-10 h-10 bg-white rounded-lg shadow-md border border-neutral-300 hover:bg-neutral-50 flex items-center justify-center text-neutral-700 transition-colors"
                         title="Import Excel XY"
                       >

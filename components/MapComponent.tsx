@@ -57,6 +57,7 @@ export interface MapComponentRef {
   setMapScale: (scale: number, centerOnSelection?: boolean) => void;
   locateUser: () => void;
   selectLayer: (layerId: string) => void;
+  flyToLocation: (lon: number, lat: number, zoom?: number) => void;
 }
 
 type PopupContent = 
@@ -307,6 +308,17 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
             (error) => { console.error(error); alert("Impossible d'obtenir votre position."); },
             { enableHighAccuracy: true }
         );
+    },
+    flyToLocation: (lon, lat, zoom) => {
+        if (mapRef.current) {
+            const coords = fromLonLat([lon, lat]);
+            mapRef.current.getView().animate({ 
+                center: coords, 
+                zoom: zoom || 16, 
+                duration: 1200 
+            });
+            // Optional: Add a temporary feature to highlight
+        }
     },
     setMapScale: (scale, centerOnSelection) => { /* Same as before */
       if (!mapRef.current) return;
