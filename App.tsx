@@ -496,7 +496,7 @@ const App: React.FC = () => {
           
           {/* SITE BRANDING / LOGO */}
           <div className="flex items-center px-2 mr-1 border-r border-neutral-300 gap-1.5">
-             <span className="text-xs font-black text-neutral-700 hidden sm:block">topoma sig geotif</span>
+             <span className="text-xs font-black text-neutral-700 hidden sm:block">topoma</span>
           </div>
 
           {/* LEFT: GeoTIFF Toggle */}
