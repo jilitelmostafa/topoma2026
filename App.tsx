@@ -14,6 +14,7 @@ interface ExportData {
   area?: string;
   perimeter?: string;
   projection?: string;
+  featureId?: string;
 }
 
 interface ExportResult {
@@ -26,11 +27,17 @@ interface ExportResult {
 interface LayerInfo {
     id: string;
     name: string;
-    type: 'KML' | 'SHP' | 'DXF' | 'MANUAL';
+    type: 'KML' | 'SHP' | 'DXF';
+}
+
+interface ManualFeatureInfo {
+    id: string;
+    label: string;
+    type: 'Polygon' | 'Rectangle' | 'Line' | 'Point';
 }
 
 type WorkflowStep = 'IDLE' | 'SELECTED' | 'PROCESSING' | 'DONE';
-type ToolType = 'Rectangle' | 'Polygon' | 'Point' | 'Pan' | 'MeasureLength' | 'MeasureArea' | null;
+type ToolType = 'Rectangle' | 'Polygon' | 'Point' | 'Line' | 'Pan' | 'MeasureLength' | 'MeasureArea' | 'Edit' | null;
 type MapType = 'satellite' | 'hybrid';
 
 // Custom Export Resolutions/Scales as requested
@@ -111,7 +118,7 @@ const App: React.FC = () => {
   // UI Layout State
   const [tocOpen, setTocOpen] = useState(true); // Table of Contents (Right)
   const [toolboxOpen, setToolboxOpen] = useState(false); // Export Tools (Left)
-  const [showGoToPanel, setShowGoToPanel] = useState(false); // Floating "Go To XY" Panel (Now Dropdown from Top)
+  const [showGoToPanel, setShowGoToPanel] = useState(false); // Floating "Go To XY" Panel
   const [showExcelPanel, setShowExcelPanel] = useState(false); // Floating "Excel Import" Panel
   const [showExcelHelp, setShowExcelHelp] = useState(false); // Lightbox for Excel Help
   
@@ -129,6 +136,7 @@ const App: React.FC = () => {
   
   // Layer Management
   const [layers, setLayers] = useState<LayerInfo[]>([]);
+  const [manualFeatures, setManualFeatures] = useState<ManualFeatureInfo[]>([]);
   const [selectedLayerId, setSelectedLayerId] = useState<string>('manual');
 
   const [locationName, setLocationName] = useState<string>("location");
@@ -171,9 +179,20 @@ const App: React.FC = () => {
   const handleLayerSelect = (layerId: string) => {
       setSelectedLayerId(layerId);
       mapComponentRef.current?.selectLayer(layerId);
-      // If manual is selected, verify if there is data, if not set IDLE
+      
+      // If manual/all is selected, ensure we are in a selection state if something was drawn
       if (layerId === 'manual' && (!exportData || !exportData.area)) {
-          setStep('IDLE');
+          // Check if there are ANY manual features
+          if (manualFeatures.length === 0) {
+             setStep('IDLE');
+          } else {
+             // Maybe select all? handled by map component
+          }
+      }
+      // If a specific manual feature is selected, it should be in selected state
+      if (manualFeatures.find(f => f.id === layerId)) {
+          setStep('SELECTED');
+          setToolboxOpen(true);
       }
   };
 
@@ -194,25 +213,22 @@ const App: React.FC = () => {
     } else {
         mapComponentRef.current?.setDrawTool(newTool === 'Pan' ? null : newTool);
     }
-
-    // If we select a drawing tool, switch to manual layer
-    if (newTool === 'Rectangle' || newTool === 'Polygon') {
-        setSelectedLayerId('manual');
-        mapComponentRef.current?.selectLayer('manual');
+    
+    // When editing, ensure toolbox might open if selection happens
+    if (newTool === 'Edit') {
+        // Just activate mode
     }
 
-    if (newTool && newTool !== 'Pan' && newTool !== 'MeasureLength' && newTool !== 'MeasureArea' && newTool !== 'Point') {
-        setStep('IDLE');
-        setExportData(null);
-        setZipBlob(null);
+    if (newTool && newTool !== 'Pan' && newTool !== 'MeasureLength' && newTool !== 'MeasureArea' && newTool !== 'Point' && newTool !== 'Edit') {
+        // If drawing new shape, select manual layer implicitly
+        // but don't reset everything if adding multiple shapes
+        setSelectedLayerId('manual');
     }
   };
 
   const handleUnitChange = (unit: string) => {
       setMeasureUnit(unit);
-      // Trigger map to update existing measurement labels
       mapComponentRef.current?.updateMeasureUnit(unit);
-      // If tool is currently active, ensure it keeps measuring with new unit
       if (activeTool === 'MeasureLength' || activeTool === 'MeasureArea') {
           mapComponentRef.current?.setMeasureTool(activeTool, unit);
       }
@@ -227,16 +243,15 @@ const App: React.FC = () => {
       if (!file || !mapComponentRef.current) return;
 
       if (type !== 'XLS') {
-          setActiveTool('Pan'); // Reset to pan
+          setActiveTool('Pan'); 
           mapComponentRef.current.setDrawTool(null);
           
-          // Generate unique ID for the layer
           const layerId = `layer_${Date.now()}`;
           const newLayer: LayerInfo = { id: layerId, name: file.name, type };
           
           setLayers(prev => [...prev, newLayer]);
-          setSelectedLayerId(layerId); // Select the new layer
-          setToolboxOpen(true); // Open export toolbox
+          setSelectedLayerId(layerId);
+          setToolboxOpen(true); 
 
           if (type === 'KML') mapComponentRef.current.loadKML(file, layerId);
           if (type === 'SHP') mapComponentRef.current.loadShapefile(file, layerId);
@@ -474,6 +489,7 @@ const App: React.FC = () => {
     setZipBlob(null);
     setSelectedExcelFile(null);
     setLayers([]);
+    setManualFeatures([]);
     setSelectedLayerId('manual');
     setPointCounter(1);
     setLocationName("location");
@@ -537,6 +553,24 @@ const App: React.FC = () => {
                   <i className="fas fa-hand-paper text-neutral-700"></i>
               </button>
               
+              <button 
+                onClick={() => { mapComponentRef.current?.undoLastDraw(); }}
+                className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300"
+                title="Tamer (Undo)"
+              >
+                  <i className="fas fa-undo text-neutral-700"></i>
+              </button>
+
+              <button 
+                onClick={() => { mapComponentRef.current?.deleteSelectedFeature(); }}
+                className="w-8 h-8 flex items-center justify-center rounded hover:bg-red-50 border border-transparent hover:border-red-200 group"
+                title="Supprimer la sélection"
+              >
+                  <i className="fas fa-trash text-neutral-400 group-hover:text-red-500"></i>
+              </button>
+
+               <div className="h-6 w-px bg-neutral-300 mx-1"></div>
+
               {/* Go To XY Tool */}
               <div className="relative">
                   <button 
@@ -740,14 +774,31 @@ const App: React.FC = () => {
                                    <select 
                                       value={selectedLayerId}
                                       onChange={(e) => handleLayerSelect(e.target.value)}
-                                      className="w-full border border-neutral-300 p-1.5 rounded bg-white text-neutral-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 appearance-none font-medium"
+                                      className="w-full border border-neutral-300 p-1.5 rounded bg-white text-neutral-700 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 appearance-none font-medium text-xs"
                                    >
-                                      <option value="manual">✎ Dessin manuel</option>
-                                      {layers.map(layer => (
-                                          <option key={layer.id} value={layer.id}>
-                                              {layer.type}: {layer.name}
-                                          </option>
-                                      ))}
+                                      <option value="manual" className="font-bold text-blue-800"> -- Tout (Manuel) -- </option>
+                                      
+                                      {/* Manual Features Group */}
+                                      {manualFeatures.length > 0 && (
+                                          <optgroup label="Dessins">
+                                              {manualFeatures.map(feat => (
+                                                  <option key={feat.id} value={feat.id}>
+                                                      {feat.label} ({feat.type})
+                                                  </option>
+                                              ))}
+                                          </optgroup>
+                                      )}
+
+                                      {/* Imported Layers Group */}
+                                      {layers.length > 0 && (
+                                          <optgroup label="Fichiers Importés">
+                                            {layers.map(layer => (
+                                                <option key={layer.id} value={layer.id}>
+                                                    {layer.type}: {layer.name}
+                                                </option>
+                                            ))}
+                                          </optgroup>
+                                      )}
                                    </select>
                                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-neutral-600">
                                        <i className="fas fa-chevron-down text-[10px]"></i>
@@ -799,7 +850,7 @@ const App: React.FC = () => {
                            <div className="border border-neutral-200 p-3 bg-neutral-50 min-h-[160px] flex flex-col items-center justify-center text-center rounded relative overflow-hidden">
                                {step === 'IDLE' && <span className="text-neutral-400 italic">Sélectionnez une zone...</span>}
                                
-                               {(step === 'SELECTED' || (selectedLayerId !== 'manual' && exportData)) && (
+                               {(step === 'SELECTED' || (selectedLayerId !== 'manual' && exportData) || (selectedLayerId === 'manual' && manualFeatures.length > 0)) && (
                                    <>
                                      <div className="text-green-600 font-bold mb-3 flex items-center gap-1"><i className="fas fa-check-circle"></i> Prêt pour le traitement</div>
                                      <button onClick={() => startClipping()} className="bg-blue-600 border border-blue-700 text-white px-6 py-2 rounded hover:bg-blue-700 shadow-md transition-all font-bold flex items-center gap-2">
@@ -922,6 +973,15 @@ const App: React.FC = () => {
                       </div>
                   </div>
 
+                  {/* Tool: Edit (Modify) */}
+                  <button 
+                    onClick={() => toggleTool('Edit')} 
+                    className={`pointer-events-auto w-10 h-10 rounded-lg shadow-md border flex items-center justify-center transition-colors ${activeTool === 'Edit' ? 'bg-orange-500 text-white border-orange-600' : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'}`} 
+                    title="Modifier (Editer)"
+                  >
+                      <i className="fas fa-pen-to-square text-lg"></i>
+                  </button>
+
                   {/* Tool: Select Rectangle */}
                   <button 
                     onClick={() => toggleTool('Rectangle')} 
@@ -938,6 +998,15 @@ const App: React.FC = () => {
                     title="Select Polygon"
                   >
                       <i className="fas fa-draw-polygon text-lg"></i>
+                  </button>
+
+                  {/* Tool: Draw Line */}
+                  <button 
+                    onClick={() => toggleTool('Line')} 
+                    className={`pointer-events-auto w-10 h-10 rounded-lg shadow-md border flex items-center justify-center transition-colors ${activeTool === 'Line' ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'}`} 
+                    title="Dessiner une Ligne"
+                  >
+                      <i className="fas fa-slash text-lg"></i>
                   </button>
 
                   {/* Tool: Create Point */}
@@ -992,11 +1061,13 @@ const App: React.FC = () => {
                 mapType={mapType}
                 selectedZone={selectedZone}
                 onMouseMove={(x, y) => setMouseCoords({x, y})}
+                onManualFeaturesChange={(features) => setManualFeatures(features)}
                 onSelectionComplete={(data) => {
                   setExportData({ ...data, projection: selectedZone }); 
                   setStep('SELECTED');
-                  setActiveTool(null);
-                  if (selectedLayerId === 'manual') setToolboxOpen(true);
+                  // Only open toolbox if we are in edit mode or drawing a shape, not just selecting/moving
+                  if (activeTool !== 'Edit') setToolboxOpen(true);
+                  if (data.featureId) setSelectedLayerId(data.featureId);
                 }} 
               />
           </div>
