@@ -63,11 +63,11 @@ export interface MapComponentRef {
   loadDXF: (file: File, zoneCode: string, layerId: string) => void;
   loadExcelPoints: (points: Array<{x: number, y: number, label?: string}>) => void;
   addManualPoint: (x: number, y: number, label: string) => void;
-  setDrawTool: (type: 'Rectangle' | 'Polygon' | 'Point' | 'Line' | 'Edit' | null) => void;
+  setDrawTool: (type: 'Rectangle' | 'Polygon' | 'Point' | 'Line' | 'Edit' | 'Delete' | null) => void;
   setMeasureTool: (type: 'MeasureLength' | 'MeasureArea', unit: string) => void;
   updateMeasureUnit: (unit: string) => void;
   clearAll: () => void;
-  undoLastDraw: () => void;
+  undo: () => void;
   deleteSelectedFeature: () => void;
   setMapScale: (scale: number, centerOnSelection?: boolean) => void;
   locateUser: () => void;
@@ -106,6 +106,10 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
   const modifyInteractionRef = useRef<Modify | null>(null);
   const selectInteractionRef = useRef<Select | null>(null);
   const snapInteractionRef = useRef<Snap | null>(null);
+
+  // State Refs
+  const isSketchingRef = useRef<boolean>(false);
+  const isDeleteModeRef = useRef<boolean>(false);
 
   // Counters for auto-naming
   const featureCounters = useRef({ Polygon: 1, Line: 1, Point: 1, Rectangle: 1 });
@@ -198,6 +202,19 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
   };
 
   const selectedStyleFunction = (feature: any) => {
+      // If in delete mode, show as red to indicate deletion
+      if (isDeleteModeRef.current) {
+         return new Style({
+             stroke: new Stroke({ color: '#ef4444', width: 4 }), // Red stroke
+             fill: new Fill({ color: 'rgba(239, 68, 68, 0.3)' }),
+             image: new CircleStyle({
+                 radius: 7,
+                 fill: new Fill({ color: '#ef4444' }),
+                 stroke: new Stroke({ color: '#fff', width: 2 })
+             })
+         });
+      }
+
       // When selected, keep the look but maybe thicken stroke or change color slightly
       const baseStyles = manualStyleFunction(feature);
       const styles = Array.isArray(baseStyles) ? baseStyles : [baseStyles];
@@ -786,11 +803,16 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
           mapRef.current.removeInteraction(drawInteractionRef.current);
           drawInteractionRef.current = null;
       }
+      isSketchingRef.current = false;
+
       if (pointerMoveListenerRef.current) {
           unByKey(pointerMoveListenerRef.current);
           pointerMoveListenerRef.current = null;
       }
       overlayRef.current?.setPosition(undefined);
+      
+      // Set Delete Mode Flag
+      isDeleteModeRef.current = (type === 'Delete');
 
       // Handle "Edit" Mode
       if (type === 'Edit') {
@@ -798,13 +820,20 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
           if (selectInteractionRef.current) selectInteractionRef.current.setActive(true);
           if (snapInteractionRef.current) snapInteractionRef.current.setActive(true);
           return;
-      } else {
-          // Disable modify during drawing to avoid confusion, or keep it enabled for fine-tuning others
-          // Usually disable modify while drawing new shape
+      } 
+      
+      // Handle "Delete" Mode
+      if (type === 'Delete') {
+          // Deactivate modify, but activate select to pick items to delete
           if (modifyInteractionRef.current) modifyInteractionRef.current.setActive(false);
-          // Keep select active or deactive? Deactivate to avoid selecting while drawing
-          if (selectInteractionRef.current) selectInteractionRef.current.setActive(false);
+          if (selectInteractionRef.current) selectInteractionRef.current.setActive(true);
+          return;
       }
+      
+      // Normal Drawing Modes
+      // Disable modify/select during drawing new shape to avoid confusion
+      if (modifyInteractionRef.current) modifyInteractionRef.current.setActive(false);
+      if (selectInteractionRef.current) selectInteractionRef.current.setActive(false);
 
       if (!type) return;
 
@@ -819,9 +848,11 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       draw.on('drawstart', () => { 
          // Removed sourceRef.current.clear() to allow multiple manual features
          overlayRef.current?.setPosition(undefined); 
+         isSketchingRef.current = true;
       });
 
       draw.on('drawend', (event) => {
+        isSketchingRef.current = false;
         const feature = event.feature;
         const geometry = feature.getGeometry();
         if (!geometry) return;
@@ -875,6 +906,34 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         featureCounters.current = { Polygon: 1, Line: 1, Point: 1, Rectangle: 1 };
         notifyManualFeatures();
     },
+    // New Undo Method: Handles both Vertex Undo (while drawing) and Feature Undo (after drawing)
+    undo: () => {
+        if (isSketchingRef.current && drawInteractionRef.current) {
+            // Remove last point of current sketch
+            drawInteractionRef.current.removeLastPoint();
+        } else {
+            // Undo last completed feature
+            const features = sourceRef.current.getFeatures();
+            if (features.length > 0) {
+                const lastFeature = features[features.length - 1];
+                sourceRef.current.removeFeature(lastFeature);
+                overlayRef.current?.setPosition(undefined);
+                notifyManualFeatures();
+            } else {
+                 // Try points source
+                 const points = pointsSourceRef.current.getFeatures();
+                 if (points.length > 0) {
+                     const lastPoint = points[points.length - 1];
+                     // Only remove manually added points (check id prefix or just last)
+                     if (lastPoint.getId()?.toString().startsWith('Point_')) {
+                         pointsSourceRef.current.removeFeature(lastPoint);
+                         overlayRef.current?.setPosition(undefined);
+                     }
+                 }
+            }
+        }
+    },
+    // Deprecated for external use, but kept for compatibility
     undoLastDraw: () => {
         const features = sourceRef.current.getFeatures();
         if (features.length > 0) {
@@ -888,9 +947,8 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         const selectedFeatures = selectInteractionRef.current?.getFeatures();
         if (selectedFeatures && selectedFeatures.getLength() > 0) {
             selectedFeatures.forEach((feature) => {
-                sourceRef.current.removeFeature(feature);
-                // Also check points source if we allow selecting points
-                pointsSourceRef.current.removeFeature(feature);
+                if (sourceRef.current.hasFeature(feature)) sourceRef.current.removeFeature(feature);
+                if (pointsSourceRef.current.hasFeature(feature)) pointsSourceRef.current.removeFeature(feature);
             });
             selectedFeatures.clear();
             overlayRef.current?.setPosition(undefined);
@@ -1133,9 +1191,28 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         ],
         style: selectedStyleFunction
     });
+    
+    // Select Event Listener: Handles both Normal Selection and "Delete Mode"
     select.on('select', (e) => {
-        // Optional: Notify app that selection changed
+        const selected = e.selected;
+        if (selected.length === 0) return;
+
+        // If DELETE MODE is active, immediately remove feature
+        if (isDeleteModeRef.current) {
+            selected.forEach(feature => {
+                 if (sourceRef.current.hasFeature(feature)) sourceRef.current.removeFeature(feature);
+                 if (pointsSourceRef.current.hasFeature(feature)) pointsSourceRef.current.removeFeature(feature);
+            });
+            // Clear selection immediately so it doesn't stay highlighted
+            select.getFeatures().clear();
+            overlayRef.current?.setPosition(undefined);
+            notifyManualFeatures();
+            return;
+        }
+
+        // Normal selection logic (optional: notify app)
     });
+
     selectInteractionRef.current = select;
 
     const modify = new Modify({ 
@@ -1186,12 +1263,18 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         
         const pixel = map.getEventPixel(evt.originalEvent);
         const hit = map.hasFeatureAtPixel(pixel, { layerFilter: (l) => l.getSource() === pointsSourceRef.current || l.getSource() === sourceRef.current });
-        mapElement.current!.style.cursor = hit ? 'pointer' : '';
+        
+        // Change cursor based on mode
+        if (isDeleteModeRef.current) {
+            mapElement.current!.style.cursor = hit ? 'not-allowed' : 'cell';
+        } else {
+            mapElement.current!.style.cursor = hit ? 'pointer' : '';
+        }
     });
 
     map.on('click', (evt) => {
-        // PREVENT POPUP IF DRAWING IS ACTIVE
-        if (drawInteractionRef.current) return;
+        // PREVENT POPUP IF DRAWING OR DELETING
+        if (drawInteractionRef.current || isDeleteModeRef.current) return;
 
         const pixel = map.getEventPixel(evt.originalEvent);
         const feature = map.forEachFeatureAtPixel(pixel, (feat) => feat, { 
@@ -1220,6 +1303,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
              if (drawInteractionRef.current && mapRef.current) {
                  mapRef.current.removeInteraction(drawInteractionRef.current);
                  drawInteractionRef.current = null;
+                 isSketchingRef.current = false;
                  // Note: App state 'activeTool' won't update here, but interaction stops.
              }
         }

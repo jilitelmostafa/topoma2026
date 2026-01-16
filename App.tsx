@@ -37,7 +37,7 @@ interface ManualFeatureInfo {
 }
 
 type WorkflowStep = 'IDLE' | 'SELECTED' | 'PROCESSING' | 'DONE';
-type ToolType = 'Rectangle' | 'Polygon' | 'Point' | 'Line' | 'Pan' | 'MeasureLength' | 'MeasureArea' | 'Edit' | null;
+type ToolType = 'Rectangle' | 'Polygon' | 'Point' | 'Line' | 'Pan' | 'MeasureLength' | 'MeasureArea' | 'Edit' | 'Delete' | null;
 type MapType = 'satellite' | 'hybrid';
 
 // Custom Export Resolutions/Scales as requested
@@ -214,12 +214,7 @@ const App: React.FC = () => {
         mapComponentRef.current?.setDrawTool(newTool === 'Pan' ? null : newTool);
     }
     
-    // When editing, ensure toolbox might open if selection happens
-    if (newTool === 'Edit') {
-        // Just activate mode
-    }
-
-    if (newTool && newTool !== 'Pan' && newTool !== 'MeasureLength' && newTool !== 'MeasureArea' && newTool !== 'Point' && newTool !== 'Edit') {
+    if (newTool && newTool !== 'Pan' && newTool !== 'MeasureLength' && newTool !== 'MeasureArea' && newTool !== 'Point' && newTool !== 'Edit' && newTool !== 'Delete') {
         // If drawing new shape, select manual layer implicitly
         // but don't reset everything if adding multiple shapes
         setSelectedLayerId('manual');
@@ -553,22 +548,6 @@ const App: React.FC = () => {
                   <i className="fas fa-hand-paper text-neutral-700"></i>
               </button>
               
-              <button 
-                onClick={() => { mapComponentRef.current?.undoLastDraw(); }}
-                className="w-8 h-8 flex items-center justify-center rounded hover:bg-neutral-200 border border-transparent hover:border-neutral-300"
-                title="Tamer (Undo)"
-              >
-                  <i className="fas fa-undo text-neutral-700"></i>
-              </button>
-
-              <button 
-                onClick={() => { mapComponentRef.current?.deleteSelectedFeature(); }}
-                className="w-8 h-8 flex items-center justify-center rounded hover:bg-red-50 border border-transparent hover:border-red-200 group"
-                title="Supprimer la sélection"
-              >
-                  <i className="fas fa-trash text-neutral-400 group-hover:text-red-500"></i>
-              </button>
-
                <div className="h-6 w-px bg-neutral-300 mx-1"></div>
 
               {/* Go To XY Tool */}
@@ -982,6 +961,26 @@ const App: React.FC = () => {
                       <i className="fas fa-pen-to-square text-lg"></i>
                   </button>
 
+                  {/* Tool: Undo (Tamer) */}
+                  <button 
+                    onClick={() => { mapComponentRef.current?.undo(); }}
+                    className="pointer-events-auto w-10 h-10 rounded-lg shadow-md border flex items-center justify-center transition-colors bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50"
+                    title="Annuler (Vertex/Forme)"
+                  >
+                      <i className="fas fa-rotate-left text-lg"></i>
+                  </button>
+
+                  {/* Tool: Eraser (Delete Mode) */}
+                  <button 
+                    onClick={() => toggleTool('Delete')} 
+                    className={`pointer-events-auto w-10 h-10 rounded-lg shadow-md border flex items-center justify-center transition-colors ${activeTool === 'Delete' ? 'bg-red-600 text-white border-red-700' : 'bg-white text-neutral-700 border-neutral-300 hover:bg-neutral-50'}`}
+                    title="Gomme (Supprimer)"
+                  >
+                      <i className="fas fa-eraser text-lg"></i>
+                  </button>
+
+                  <div className="h-px w-6 bg-neutral-300 my-1"></div>
+
                   {/* Tool: Select Rectangle */}
                   <button 
                     onClick={() => toggleTool('Rectangle')} 
@@ -1066,7 +1065,7 @@ const App: React.FC = () => {
                   setExportData({ ...data, projection: selectedZone }); 
                   setStep('SELECTED');
                   // Only open toolbox if we are in edit mode or drawing a shape, not just selecting/moving
-                  if (activeTool !== 'Edit') setToolboxOpen(true);
+                  if (activeTool !== 'Edit' && activeTool !== 'Delete') setToolboxOpen(true);
                   if (data.featureId) setSelectedLayerId(data.featureId);
                 }} 
               />
