@@ -496,7 +496,6 @@ const App: React.FC = () => {
           
           {/* SITE BRANDING / LOGO */}
           <div className="flex items-center px-2 mr-1 border-r border-neutral-300 gap-1.5">
-             <img src="https://cdn-icons-png.flaticon.com/512/5091/5091101.png" className="h-5 w-5" alt="Logo" />
              <span className="text-xs font-black text-neutral-700 hidden sm:block">topoma sig geotif</span>
           </div>
 
