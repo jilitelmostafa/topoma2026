@@ -11,7 +11,7 @@ import Modify from 'ol/interaction/Modify';
 import Select from 'ol/interaction/Select';
 import Snap from 'ol/interaction/Snap';
 import { click } from 'ol/events/condition';
-import { Style, Stroke, Fill, Circle as CircleStyle, Text } from 'ol/style';
+import { Style, Stroke, Fill, Circle as CircleStyle, Text, Icon } from 'ol/style';
 import { ScaleLine, Zoom } from 'ol/control';
 import Overlay from 'ol/Overlay';
 import { getArea, getLength } from 'ol/sphere';
@@ -21,6 +21,7 @@ import Polygon from 'ol/geom/Polygon';
 import MultiPolygon from 'ol/geom/MultiPolygon';
 import LineString from 'ol/geom/LineString';
 import Point from 'ol/geom/Point';
+import MultiPoint from 'ol/geom/MultiPoint';
 import Feature from 'ol/Feature';
 import proj4 from 'proj4'; 
 import { convertToWGS84, calculateScale, getResolutionFromScale, projectFromZone, projectToZone, formatArea, fetchElevation, createPointDXF, createPointText, createPointKML } from '../services/geoService';
@@ -88,6 +89,9 @@ type PopupContent =
     }
   | null;
 
+// SVG for Blue Marker
+const blueMarkerSvg = `<svg xmlns="http://www.w3.org/2000/svg" height="30" viewBox="0 0 24 24" width="30"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" fill="#2563eb" stroke="#ffffff" stroke-width="1"/></svg>`;
+
 const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelectionComplete, onMouseMove, onManualFeaturesChange, selectedZone, mapType }, ref) => {
   const mapElement = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
@@ -128,55 +132,84 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     const geometry = feature.getGeometry();
     const type = geometry.getType();
     const label = feature.get('label') || '';
-    const isSelected = feature.get('selected'); // We can manually toggle this if needed, or rely on Select interaction style
+    const isSelected = feature.get('selected'); 
 
-    const strokeColor = '#ef4444'; // Red-500
-    const strokeWidth = isSelected ? 4 : 2;
-    const fillColor = 'rgba(239, 68, 68, 0.1)'; // Red transparent
-
+    // Text Style
     const textStyle = new Text({
         text: label,
         font: 'bold 12px Roboto, sans-serif',
         fill: new Fill({ color: '#ffffff' }),
-        stroke: new Stroke({ color: '#b91c1c', width: 3 }), // Dark Red outline
+        stroke: new Stroke({ color: '#166534', width: 3 }), // Dark Green outline for Polygons
         overflow: true,
-        offsetY: -10,
+        offsetY: type === 'Point' ? -25 : -10,
         placement: type === 'LineString' ? 'line' : 'point',
     });
 
+    // POINT STYLE (Blue Marker Icon)
     if (type === 'Point') {
-         // Default Point Style (Clean Circle/Dot)
-         return new Style({
-            image: new CircleStyle({
-                radius: 5,
-                fill: new Fill({ color: '#ef4444' }),
-                stroke: new Stroke({ color: '#ffffff', width: 2 }),
+        textStyle.getStroke().setColor('#000000'); // Black outline for point text
+        return new Style({
+            image: new Icon({
+                src: 'data:image/svg+xml;utf8,' + encodeURIComponent(blueMarkerSvg),
+                anchor: [0.5, 1],
+                scale: 1
             }),
             text: textStyle
         });
     }
 
+    // POLYGON STYLE (Green Stroke, Transparent Fill, Permanent Vertices)
+    if (type === 'Polygon' || type === 'MultiPolygon' || type === 'Circle') {
+        const styles = [
+            new Style({
+                stroke: new Stroke({ color: '#22c55e', width: 2 }), // Green Stroke
+                fill: new Fill({ color: 'rgba(255, 255, 255, 0)' }), // Transparent Fill
+                text: textStyle
+            })
+        ];
+
+        // Add Vertices (Points at corners)
+        // We create a MultiPoint geometry from the Polygon coordinates to render dots
+        if (type === 'Polygon') {
+            styles.push(new Style({
+                image: new CircleStyle({
+                    radius: 3,
+                    fill: new Fill({ color: '#22c55e' }), // Green dots
+                    stroke: new Stroke({ color: '#fff', width: 1 })
+                }),
+                geometry: function(feature) {
+                    const geom = feature.getGeometry();
+                    if(geom instanceof Polygon) {
+                        const coordinates = geom.getCoordinates()[0]; // Outer ring
+                        return new MultiPoint(coordinates);
+                    }
+                    return geom;
+                }
+            }));
+        }
+        return styles;
+    }
+
+    // LINE STYLE
     return new Style({
-        stroke: new Stroke({ color: strokeColor, width: strokeWidth }),
-        fill: new Fill({ color: fillColor }),
+        stroke: new Stroke({ color: '#22c55e', width: 2 }),
         text: textStyle
     });
   };
 
   const selectedStyleFunction = (feature: any) => {
-      // Style when clicking/selecting a feature to edit/delete
-      const baseStyle = manualStyleFunction(feature);
-      const stroke = baseStyle.getStroke();
-      if (stroke) {
-          stroke.setColor('#3b82f6'); // Blue for selection
-          stroke.setWidth(3);
-      }
-      const image = baseStyle.getImage();
-      if (image && image instanceof CircleStyle) {
-          image.getFill().setColor('#3b82f6');
-          image.setRadius(6); // Slightly larger when selected
-      }
-      return baseStyle;
+      // When selected, keep the look but maybe thicken stroke or change color slightly
+      const baseStyles = manualStyleFunction(feature);
+      const styles = Array.isArray(baseStyles) ? baseStyles : [baseStyles];
+      
+      styles.forEach(s => {
+          const stroke = s.getStroke();
+          if (stroke) {
+              stroke.setColor('#3b82f6'); // Blue selection
+              stroke.setWidth(3);
+          }
+      });
+      return styles;
   };
 
   const measureStyle = new Style({
@@ -190,16 +223,16 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
   });
 
   const pointStyle = (feature: any) => {
-    // Style for loaded points (Excel, etc.)
+    // Style for loaded points (Excel, etc.) - SAME AS MANUAL POINT
     return new Style({
-      image: new CircleStyle({
-        radius: 5, // Clean Point
-        fill: new Fill({ color: '#0ea5e9' }), // Sky Blue
-        stroke: new Stroke({ color: '#ffffff', width: 2 }),
+      image: new Icon({
+          src: 'data:image/svg+xml;utf8,' + encodeURIComponent(blueMarkerSvg),
+          anchor: [0.5, 1],
+          scale: 1
       }),
       text: new Text({
         text: feature.get('label') || '',
-        offsetY: -12,
+        offsetY: -25,
         font: '11px Roboto, sans-serif',
         fill: new Fill({ color: '#ffffff' }),
         stroke: new Stroke({ color: '#000000', width: 3 }),
@@ -652,7 +685,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     loadExcelPoints: (points) => { /* Same */
         overlayRef.current?.setPosition(undefined); 
         pointsSourceRef.current.clear();
-        const features = points.map((pt, index) => new Feature({ geometry: new Point(fromLonLat([pt.x, pt.y])), label: pt.label || `P${index + 1}` }));
+        const features = points.map((pt, index) => new Feature({ geometry: new Point(fromLonLat([pt.x, pt.y])), label: pt.label || `P${index + 1}`, type: 'Point' }));
         pointsSourceRef.current.addFeatures(features);
         if (features.length > 0 && mapRef.current) {
             const extent = pointsSourceRef.current.getExtent();
@@ -665,7 +698,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         }
     },
     addManualPoint: (x, y, label) => { /* Same */
-        const feature = new Feature({ geometry: new Point(fromLonLat([x, y])), label: label });
+        const feature = new Feature({ geometry: new Point(fromLonLat([x, y])), label: label, type: 'Point' });
         pointsSourceRef.current.addFeature(feature);
         if (mapRef.current) {
             mapRef.current.getView().animate({ center: fromLonLat([x, y]), zoom: 16, duration: 800 });
@@ -955,7 +988,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                     if (idx === 0) mapContext.moveTo(px, py);
                     else mapContext.lineTo(px, py);
                 });
-                mapContext.strokeStyle = measureSourceRef.current.hasFeature(feature) ? "#3b82f6" : "#ef4444";
+                mapContext.strokeStyle = measureSourceRef.current.hasFeature(feature) ? "#3b82f6" : "#22c55e"; // Blue measure, Green manual
                 mapContext.lineWidth = 2;
                 if(measureSourceRef.current.hasFeature(feature)) mapContext.setLineDash([10, 10]);
                 mapContext.stroke();
@@ -986,8 +1019,8 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                          mapContext.lineWidth = 3;
                          mapContext.stroke();
                     } else {
-                         // Other manual feature
-                         mapContext.strokeStyle = "#ef4444";
+                         // Other manual feature - Transparent Green
+                         mapContext.strokeStyle = "#22c55e";
                          mapContext.lineWidth = 2;
                          mapContext.stroke();
                     }
@@ -1045,9 +1078,11 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                  const coord = geom.getCoordinates();
                  const px = (coord[0] - extent![0]) / exportRes;
                  const py = (extent![3] - coord[1]) / exportRes;
+                 
+                 // Draw the Marker Icon (Simplified to Circle/Pin for Canvas)
                  mapContext.beginPath();
                  mapContext.arc(px, py, 6, 0, 2 * Math.PI);
-                 mapContext.fillStyle = "#0ea5e9";
+                 mapContext.fillStyle = "#2563eb";
                  mapContext.fill();
                  mapContext.strokeStyle = "#ffffff";
                  mapContext.lineWidth = 2;
@@ -1077,7 +1112,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         autoPan: true,
         positioning: 'bottom-center',
         stopEvent: true, // Prevents map interaction through popup
-        offset: [0, -15], // Middle above point with slightly more clearance
+        offset: [0, -35], // Higher offset for marker
     });
     overlayRef.current = overlay;
     const lyrCode = mapType === 'satellite' ? 's' : 'y';
@@ -1107,8 +1142,8 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         source: sourceRef.current,
         style: new Style({
              image: new CircleStyle({
-                 radius: 7,
-                 fill: new Fill({ color: '#3b82f6' }),
+                 radius: 6,
+                 fill: new Fill({ color: '#22c55e' }), // Green handles for Edit
                  stroke: new Stroke({ color: '#fff', width: 2 })
              })
         })
@@ -1155,6 +1190,9 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     });
 
     map.on('click', (evt) => {
+        // PREVENT POPUP IF DRAWING IS ACTIVE
+        if (drawInteractionRef.current) return;
+
         const pixel = map.getEventPixel(evt.originalEvent);
         const feature = map.forEachFeatureAtPixel(pixel, (feat) => feat, { 
              layerFilter: (l) => l.getSource() === pointsSourceRef.current 
@@ -1175,6 +1213,21 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     return () => map.setTarget(undefined);
   }, []); 
 
+  // Handle ESC key to cancel draw
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+             if (drawInteractionRef.current && mapRef.current) {
+                 mapRef.current.removeInteraction(drawInteractionRef.current);
+                 drawInteractionRef.current = null;
+                 // Note: App state 'activeTool' won't update here, but interaction stops.
+             }
+        }
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
+
   useEffect(() => {
     if (baseLayerRef.current) {
       const lyrCode = mapType === 'satellite' ? 's' : 'y';
@@ -1188,7 +1241,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
 
   return (
       <div ref={mapElement} className="w-full h-full bg-slate-50 relative">
-          <div ref={popupRef} className="absolute bg-white/95 backdrop-blur border border-slate-300 rounded-lg p-0 shadow-2xl min-w-[180px] max-w-[200px] text-slate-800 z-50">
+          <div ref={popupRef} className="absolute bg-white/95 backdrop-blur border border-slate-300 rounded-lg p-0 shadow-2xl min-w-[180px] max-w-[220px] text-slate-800 z-50">
              {popupContent && popupContent.type === 'AREA' && (
                  <div className="p-2 text-center">
                      <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Surface Calculée</div>
@@ -1206,7 +1259,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                          <span className="font-bold text-xs text-slate-800">{popupContent.label}</span>
                          <button 
                             onClick={(e) => {
-                                e.stopPropagation(); // Stop click from propagating to map (prevent accidental drawing)
+                                e.stopPropagation(); 
                                 overlayRef.current?.setPosition(undefined);
                             }} 
                             className="text-slate-400 hover:text-red-500 px-1"
@@ -1214,13 +1267,20 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
                              <i className="fas fa-times text-sm"></i>
                          </button>
                      </div>
-                     <div className="p-2 text-[10px] space-y-1.5">
+                     <div className="p-2 text-[10px] space-y-2">
                          <div>
                              <div className="font-bold text-blue-600 mb-0.5">{popupContent.zone}</div>
-                             <div className="grid grid-cols-[15px_1fr] gap-x-1">
-                                 <span className="font-bold text-slate-500">X:</span> <span className="font-mono">{popupContent.x.toFixed(2)}</span>
-                                 <span className="font-bold text-slate-500">Y:</span> <span className="font-mono">{popupContent.y.toFixed(2)}</span>
-                                 <span className="font-bold text-slate-500">Z:</span> <span className="font-mono font-bold text-emerald-600">{popupContent.z}</span>
+                             <div className="grid grid-cols-[15px_1fr] gap-x-1 items-center">
+                                 <span className="font-bold text-slate-500">X:</span> <span className="font-mono">{popupContent.x.toFixed(2)} m</span>
+                                 <span className="font-bold text-slate-500">Y:</span> <span className="font-mono">{popupContent.y.toFixed(2)} m</span>
+                                 <span className="font-bold text-slate-500">Z:</span> <span className="font-mono font-bold text-emerald-600">{popupContent.z} m</span>
+                             </div>
+                         </div>
+                         <div className="border-t border-slate-100 pt-1">
+                             <div className="font-bold text-slate-500 mb-0.5">WGS 84</div>
+                             <div className="grid grid-cols-[25px_1fr] gap-x-1 items-center text-[9px]">
+                                 <span className="font-bold text-slate-400">Lat:</span> <span className="font-mono">{popupContent.lat.toFixed(6)}°</span>
+                                 <span className="font-bold text-slate-400">Lon:</span> <span className="font-mono">{popupContent.lon.toFixed(6)}°</span>
                              </div>
                          </div>
                      </div>
