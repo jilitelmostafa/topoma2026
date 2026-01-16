@@ -494,6 +494,12 @@ const App: React.FC = () => {
       {/* --- 1. MAIN TOOLBAR (Compact) --- */}
       <div className="bg-neutral-100 border-b border-neutral-300 p-1 flex items-center gap-1 shadow-sm shrink-0 h-10">
           
+          {/* SITE BRANDING / LOGO */}
+          <div className="flex items-center px-2 mr-1 border-r border-neutral-300 gap-1.5">
+             <img src="https://cdn-icons-png.flaticon.com/512/5091/5091101.png" className="h-5 w-5" alt="Logo" />
+             <span className="text-xs font-black text-neutral-700 hidden sm:block">topoma sig geotif</span>
+          </div>
+
           {/* LEFT: GeoTIFF Toggle */}
           <button 
             onClick={() => setToolboxOpen(!toolboxOpen)}
