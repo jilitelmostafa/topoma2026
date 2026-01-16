@@ -23,7 +23,7 @@ import LineString from 'ol/geom/LineString';
 import Point from 'ol/geom/Point';
 import Feature from 'ol/Feature';
 import proj4 from 'proj4'; 
-import { convertToWGS84, calculateScale, getResolutionFromScale, projectFromZone, projectToZone, formatArea, fetchElevation, createPointDXF, createPointText } from '../services/geoService';
+import { convertToWGS84, calculateScale, getResolutionFromScale, projectFromZone, projectToZone, formatArea, fetchElevation, createPointDXF, createPointText, createPointKML } from '../services/geoService';
 import { unByKey } from 'ol/Observable';
 
 // تعريف المكتبات العالمية
@@ -145,9 +145,10 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
     });
 
     if (type === 'Point') {
+         // Default Point Style (Clean Circle/Dot)
          return new Style({
             image: new CircleStyle({
-                radius: 6,
+                radius: 5,
                 fill: new Fill({ color: '#ef4444' }),
                 stroke: new Stroke({ color: '#ffffff', width: 2 }),
             }),
@@ -173,6 +174,7 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       const image = baseStyle.getImage();
       if (image && image instanceof CircleStyle) {
           image.getFill().setColor('#3b82f6');
+          image.setRadius(6); // Slightly larger when selected
       }
       return baseStyle;
   };
@@ -188,16 +190,17 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
   });
 
   const pointStyle = (feature: any) => {
+    // Style for loaded points (Excel, etc.)
     return new Style({
       image: new CircleStyle({
-        radius: 6,
+        radius: 5, // Clean Point
         fill: new Fill({ color: '#0ea5e9' }), // Sky Blue
         stroke: new Stroke({ color: '#ffffff', width: 2 }),
       }),
       text: new Text({
         text: feature.get('label') || '',
-        offsetY: -15,
-        font: '12px Roboto, sans-serif',
+        offsetY: -12,
+        font: '11px Roboto, sans-serif',
         fill: new Fill({ color: '#ffffff' }),
         stroke: new Stroke({ color: '#000000', width: 3 }),
       })
@@ -276,9 +279,9 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
       const proj = projectToZone(lon, lat, zoneCode);
       
       const zoneLabel = zoneCode === 'EPSG:4326' ? 'WGS 84' : 
-                        zoneCode === 'EPSG:26191' ? 'Zone 1 (Nord Maroc)' :
-                        zoneCode === 'EPSG:26192' ? 'Zone 2 (Sud Maroc)' :
-                        zoneCode === 'EPSG:26194' ? 'Zone 3 (Sahara Nord)' : 'Zone 4 (Sahara Sud)';
+                        zoneCode === 'EPSG:26191' ? 'Zone 1' :
+                        zoneCode === 'EPSG:26192' ? 'Zone 2' :
+                        zoneCode === 'EPSG:26194' ? 'Zone 3' : 'Zone 4';
 
       setPopupContent({
           type: 'POINT',
@@ -353,6 +356,18 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
           a.download = `${popupContent.label}.geojson`;
           a.click();
       }
+  };
+
+  const downloadPointKML = () => {
+    if (popupContent && popupContent.type === 'POINT') {
+        const content = createPointKML(popupContent.lat, popupContent.lon, popupContent.label);
+        const blob = new Blob([content], { type: 'application/vnd.google-earth.kml+xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${popupContent.label}.kml`;
+        a.click();
+    }
   };
 
   const calculateExtentAndNotify = (features: Feature[], sourceExtent: number[], featureId?: string) => {
@@ -1061,8 +1076,8 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
         element: popupRef.current!,
         autoPan: true,
         positioning: 'bottom-center',
-        stopEvent: false,
-        offset: [0, -10],
+        stopEvent: true, // Prevents map interaction through popup
+        offset: [0, -15], // Middle above point with slightly more clearance
     });
     overlayRef.current = overlay;
     const lyrCode = mapType === 'satellite' ? 's' : 'y';
@@ -1173,12 +1188,12 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
 
   return (
       <div ref={mapElement} className="w-full h-full bg-slate-50 relative">
-          <div ref={popupRef} className="absolute bg-white/95 backdrop-blur border border-slate-200 rounded-xl p-0 shadow-xl min-w-[200px] max-w-[220px] text-slate-800 z-50">
+          <div ref={popupRef} className="absolute bg-white/95 backdrop-blur border border-slate-300 rounded-lg p-0 shadow-2xl min-w-[180px] max-w-[200px] text-slate-800 z-50">
              {popupContent && popupContent.type === 'AREA' && (
-                 <div className="p-3 text-center">
+                 <div className="p-2 text-center">
                      <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Surface Calculée</div>
                      <div className="text-sm font-black text-slate-900 mb-1">
-                        Surface : {popupContent.m2} m²
+                        {popupContent.m2} m²
                      </div>
                      <div className="text-xs font-mono text-emerald-600 font-bold">
                         {popupContent.ha}
@@ -1187,40 +1202,45 @@ const MapComponent = forwardRef<MapComponentRef, MapComponentProps>(({ onSelecti
              )}
              {popupContent && popupContent.type === 'POINT' && (
                  <div className="flex flex-col w-full">
-                     <div className="bg-slate-100 p-2 border-b border-slate-200 rounded-t-xl flex justify-between items-center">
-                         <span className="font-bold text-sm text-slate-700">📌 {popupContent.label}</span>
-                         <button onClick={() => overlayRef.current?.setPosition(undefined)} className="text-slate-400 hover:text-red-500"><i className="fas fa-times"></i></button>
+                     <div className="p-2 border-b border-slate-200 flex justify-between items-center bg-slate-50 rounded-t-lg">
+                         <span className="font-bold text-xs text-slate-800">{popupContent.label}</span>
+                         <button 
+                            onClick={(e) => {
+                                e.stopPropagation(); // Stop click from propagating to map (prevent accidental drawing)
+                                overlayRef.current?.setPosition(undefined);
+                            }} 
+                            className="text-slate-400 hover:text-red-500 px-1"
+                         >
+                             <i className="fas fa-times text-sm"></i>
+                         </button>
                      </div>
-                     <div className="p-3 text-[11px] space-y-2">
+                     <div className="p-2 text-[10px] space-y-1.5">
                          <div>
-                             <div className="font-bold text-blue-600 border-b border-slate-100 mb-1 pb-1">{popupContent.zone} :</div>
-                             <div className="grid grid-cols-[20px_1fr] gap-x-1">
-                                 <span className="font-bold text-slate-500">X:</span> <span className="font-mono">{popupContent.x.toFixed(2)} m</span>
-                                 <span className="font-bold text-slate-500">Y:</span> <span className="font-mono">{popupContent.y.toFixed(2)} m</span>
-                                 <span className="font-bold text-slate-500">Z:</span> <span className="font-mono font-bold text-emerald-600">{popupContent.z} m</span>
+                             <div className="font-bold text-blue-600 mb-0.5">{popupContent.zone}</div>
+                             <div className="grid grid-cols-[15px_1fr] gap-x-1">
+                                 <span className="font-bold text-slate-500">X:</span> <span className="font-mono">{popupContent.x.toFixed(2)}</span>
+                                 <span className="font-bold text-slate-500">Y:</span> <span className="font-mono">{popupContent.y.toFixed(2)}</span>
+                                 <span className="font-bold text-slate-500">Z:</span> <span className="font-mono font-bold text-emerald-600">{popupContent.z}</span>
                              </div>
                          </div>
-                         <div>
-                             <div className="font-bold text-blue-600 border-b border-slate-100 mb-1 pb-1">WGS84 :</div>
-                             <div className="grid grid-cols-[30px_1fr] gap-x-1">
-                                 <span className="font-bold text-slate-500">Lat:</span> <span className="font-mono">{popupContent.lat.toFixed(6)}</span>
-                                 <span className="font-bold text-slate-500">Lon:</span> <span className="font-mono">{popupContent.lon.toFixed(6)}</span>
-                             </div>
-                         </div>
                      </div>
-                     <div className="bg-slate-50 p-2 border-t border-slate-200 rounded-b-xl flex justify-between items-center gap-2">
-                         <span className="text-[10px] font-bold text-slate-400 uppercase">Télécharger:</span>
-                         <div className="flex gap-1">
-                             <button onClick={downloadPointDXF} className="w-7 h-7 flex items-center justify-center rounded bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 hover:border-red-300 transition-colors" title="DXF">
-                                 <i className="fas fa-file-code"></i>
-                             </button>
-                             <button onClick={downloadPointTXT} className="w-7 h-7 flex items-center justify-center rounded bg-slate-50 border border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300 transition-colors" title="Text (Coords)">
-                                 <i className="fas fa-file-alt"></i>
-                             </button>
-                             <button onClick={downloadPointGeoJSON} className="w-7 h-7 flex items-center justify-center rounded bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 hover:border-green-300 transition-colors" title="GeoJSON">
-                                 <i className="fas fa-globe"></i>
-                             </button>
-                         </div>
+                     <div className="bg-slate-100 p-1.5 border-t border-slate-200 rounded-b-lg grid grid-cols-4 gap-1">
+                         <button onClick={downloadPointTXT} className="flex flex-col items-center justify-center p-1 rounded bg-white border border-slate-300 hover:bg-slate-50 transition-colors" title="Text Report">
+                             <i className="fas fa-file-alt text-[10px] text-slate-600 mb-0.5"></i>
+                             <span className="text-[8px] font-bold">TXT</span>
+                         </button>
+                         <button onClick={downloadPointDXF} className="flex flex-col items-center justify-center p-1 rounded bg-white border border-slate-300 hover:bg-slate-50 transition-colors" title="DXF File">
+                             <i className="fas fa-file-code text-[10px] text-blue-600 mb-0.5"></i>
+                             <span className="text-[8px] font-bold">DXF</span>
+                         </button>
+                         <button onClick={downloadPointGeoJSON} className="flex flex-col items-center justify-center p-1 rounded bg-white border border-slate-300 hover:bg-slate-50 transition-colors" title="GeoJSON">
+                             <i className="fas fa-code text-[10px] text-green-600 mb-0.5"></i>
+                             <span className="text-[8px] font-bold">JSON</span>
+                         </button>
+                         <button onClick={downloadPointKML} className="flex flex-col items-center justify-center p-1 rounded bg-white border border-slate-300 hover:bg-slate-50 transition-colors" title="KML Google Earth">
+                             <i className="fas fa-globe text-[10px] text-yellow-600 mb-0.5"></i>
+                             <span className="text-[8px] font-bold">KML</span>
+                         </button>
                      </div>
                  </div>
              )}

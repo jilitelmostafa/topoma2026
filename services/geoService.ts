@@ -216,3 +216,16 @@ Latitude  : ${lat.toFixed(7)}
 Longitude : ${lon.toFixed(7)}
 `;
 };
+
+// Generate Point KML File
+export const createPointKML = (lat: number, lon: number, label: string) => {
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Placemark>
+    <name>${label}</name>
+    <Point>
+      <coordinates>${lon},${lat},0</coordinates>
+    </Point>
+  </Placemark>
+</kml>`;
+};
